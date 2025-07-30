@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, Area, ComposedChart } from 'recharts';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, Area, ComposedChart } from 'recharts';
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
