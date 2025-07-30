@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, ReferenceArea, BarChart, AreaChart, Area as RechartsArea } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Thermometer, Wind } from 'lucide-react';
+import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -27,7 +27,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1">This may be a CORS issue. Please ensure the Netlify proxy is configured correctly in `netlify.toml`.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1">This may be a data processing error or an API issue. Please try again later.</p></div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -275,14 +275,21 @@ export default function App() {
 
                 // 3. Process data
                 const dailyData = {};
-                const facilityConsumption = reports.filter(r => r?.type === 'demand').flatMap(r => r.rows);
-                facilityConsumption.forEach(item => {
-                    if (!dailyData[item.gasDay]) dailyData[item.gasDay] = { date: new Date(item.gasDay).toLocaleDateString('en-CA'), timestamp: new Date(item.gasDay).getTime(), totalDemand: 0, totalSupply: 0 };
-                    dailyData[item.gasDay].totalDemand += item.quantity;
+                
+                // Corrected Demand Processing
+                reports.filter(r => r?.type === 'demand').forEach(report => {
+                    if (!report?.gasDay || !report.rows) return;
+                    const date = report.gasDay;
+                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                    report.rows.forEach(item => {
+                        dailyData[date].totalDemand += item.quantity;
+                    });
                 });
+                const facilityConsumption = reports.filter(r => r?.type === 'demand').flatMap(r => r.rows);
 
                 const storageFlows = {};
                 reports.filter(r => r?.type === 'flow').forEach(report => {
+                    if (!report?.gasDay || !report.rows) return;
                     const date = report.gasDay;
                     if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
@@ -303,13 +310,13 @@ export default function App() {
                 // 4. Forecast consumption for recent days
                 const lastActualIndex = processedFlows.map(d => d.totalDemand > 0).lastIndexOf(true);
                 let forecastStartDate = null;
-                if (lastActualIndex !== -1) {
+                if (lastActualIndex !== -1 && lastActualIndex < processedFlows.length - 1) {
                     const last7DaysDemand = processedFlows.slice(Math.max(0, lastActualIndex - 6), lastActualIndex + 1).map(d => d.totalDemand);
                     const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
                     
-                    const firstForecastDate = new Date(processedFlows[lastActualIndex].timestamp);
-                    firstForecastDate.setDate(firstForecastDate.getDate() + 1);
-                    forecastStartDate = getISODateString(firstForecastDate);
+                    const firstForecastDateObj = new Date(processedFlows[lastActualIndex].timestamp);
+                    firstForecastDateObj.setDate(firstForecastDateObj.getDate() + 1);
+                    forecastStartDate = new Date(firstForecastDateObj).toLocaleDateString('en-CA');
 
                     for (let i = lastActualIndex + 1; i < processedFlows.length; i++) {
                         processedFlows[i].totalDemand = forecastDemand;
