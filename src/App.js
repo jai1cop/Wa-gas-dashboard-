@@ -75,18 +75,6 @@ const generateSupplyData = (demandData, activeFacilities) => {
     });
 };
 
-// Mock data for Medium Term Capacity Chart
-    { facility: 'NW Shelf', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'NW Shelf Normal' },
-    { facility: 'NW Shelf', status: 'Maintenance', start: '2025-09-01', end: '2025-10-15', task: 'NW Shelf Maintenance' },
-    { facility: 'Wheatstone', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Wheatstone Normal' },
-    { facility: 'Macedon', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Macedon Normal' },
-    { facility: 'Macedon', status: 'Maintenance', start: '2025-10-20', end: '2025-11-30', task: 'Macedon Maintenance' },
-    { facility: 'Scarborough', status: 'Construction', start: '2025-01-01', end: '2026-06-30', task: 'Scarborough Construction' },
-    { facility: 'Scarborough', status: 'Normal', start: '2026-07-01', end: '2027-12-31', task: 'Scarborough Normal' },
-    { facility: 'Tubridgi', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Tubridgi Normal' },
-    { facility: 'Mondarra', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Mondarra Normal' },
-];
-
     const facilities = [...new Set(data.map(item => item.facility))];
     const timeline = {};
 
