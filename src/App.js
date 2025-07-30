@@ -103,8 +103,7 @@ const generateSupplyData = (demandData, activeFacilities) => {
         { x: '2025-12-01', y: 990 }, { x: '2027-12-31', y: 990 }
     ];
 
-    return { series, facilities, totalCapacityData };
-};
+
 
 // Mock News Feed Data
 const newsData = [
