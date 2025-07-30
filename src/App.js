@@ -3,7 +3,7 @@ import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
-const AEMO_API_BASE_URL = "https://gbbwa.aemo.com.au/api/v1/report";
+const AEMO_API_BASE_URL = "/api/report"; // CHANGED: Use local proxy path
 
 // Helper to get a date string in YYYY-MM-DD format
 const getISODateString = (date) => {
@@ -46,7 +46,7 @@ const ErrorDisplay = ({ message }) => (
                 <h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3>
                 <div className="mt-2 text-sm text-red-700">
                     <p>{message}</p>
-                    <p className="mt-1">Please try again later. The AEMO API may be temporarily unavailable.</p>
+                    <p className="mt-1">This is likely a CORS issue. Please ensure the Netlify proxy is configured correctly in `netlify.toml`.</p>
                 </div>
             </div>
         </div>
@@ -310,7 +310,7 @@ export default function App() {
             try {
                 // 1. Fetch facility info from Capacity Outlook to understand who is who
                 const capacityRes = await fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`);
-                if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText}`);
+                if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText} (${capacityRes.status})`);
                 const capacityData = await capacityRes.json();
                 
                 const facilityInfo = {};
@@ -386,7 +386,7 @@ export default function App() {
 
                 // 5. Fetch Medium Term Capacity
                 const mtcRes = await fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`);
-                if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
+                if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText} (${mtcRes.status})`);
                 const mtcData = await mtcRes.json();
 
                 // 6. Set all data and initial active facilities
