@@ -76,7 +76,6 @@ const generateSupplyData = (demandData, activeFacilities) => {
 };
 
 // Mock data for Medium Term Capacity Chart
-const facilityConstraintsData = [
     { facility: 'NW Shelf', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'NW Shelf Normal' },
     { facility: 'NW Shelf', status: 'Maintenance', start: '2025-09-01', end: '2025-10-15', task: 'NW Shelf Maintenance' },
     { facility: 'Wheatstone', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Wheatstone Normal' },
@@ -88,7 +87,6 @@ const facilityConstraintsData = [
     { facility: 'Mondarra', status: 'Normal', start: '2025-01-01', end: '2027-12-31', task: 'Mondarra Normal' },
 ];
 
-const processGanttData = (data) => {
     const facilities = [...new Set(data.map(item => item.facility))];
     const timeline = {};
 
