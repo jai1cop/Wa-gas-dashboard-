@@ -75,36 +75,6 @@ const generateSupplyData = (demandData, activeFacilities) => {
     });
 };
 
-    const facilities = [...new Set(data.map(item => item.facility))];
-    const timeline = {};
-
-    data.forEach(item => {
-        const start = new Date(item.start);
-        const end = new Date(item.end);
-        if (!timeline[item.facility]) {
-            timeline[item.facility] = [];
-        }
-        timeline[item.facility].push({
-            x: item.task,
-            y: [start.getTime(), end.getTime()],
-            fillColor: item.status === 'Normal' ? '#22c55e' : item.status === 'Maintenance' ? '#f59e0b' : '#ef4444'
-        });
-    });
-
-    const series = facilities.map(facility => ({
-        name: facility,
-        data: timeline[facility]
-    }));
-
-    const totalCapacityData = [
-        { x: '2025-01-01', y: 990 }, { x: '2025-08-31', y: 990 },
-        { x: '2025-09-01', y: 620 }, { x: '2025-10-15', y: 620 },
-        { x: '2025-10-16', y: 810 }, { x: '2025-11-30', y: 810 },
-        { x: '2025-12-01', y: 990 }, { x: '2027-12-31', y: 990 }
-    ];
-
-
-
 // Mock News Feed Data
 const newsData = [
     { id: 1, headline: "Woodside's Scarborough project faces fresh legal challenge", source: "Reuters", link: "#", date: "2025-07-29" },
