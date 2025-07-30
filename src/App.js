@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, Area, ComposedChart } from 'recharts';
-import { ChevronUp, ChevronDown, Sun, Cloud, Wind, Newspaper, Settings, ArrowLeft, Thermometer, Droplet } from 'lucide-react';
+import { ChevronUp, ChevronDown, Sun, Cloud, Newspaper, Settings, ArrowLeft } from 'lucide-react';
 
 // --- MOCK DATA & CONFIGURATION ---
 // Using realistic names and capacities for WA gas facilities
@@ -91,7 +91,6 @@ const facilityConstraintsData = [
 const processGanttData = (data) => {
     const facilities = [...new Set(data.map(item => item.facility))];
     const timeline = {};
-    const today = new Date('2025-07-30');
 
     data.forEach(item => {
         const start = new Date(item.start);
@@ -222,7 +221,6 @@ function SupplyDemandChart({ data, activeFacilities }) {
 }
 
 function MediumTermCapacityChart() {
-    const { facilities } = processGanttData(facilityConstraintsData);
     
     // This is a simplified representation. A true Gantt chart in Recharts is complex.
     // We'll use a stacked bar chart to simulate the Gantt view.
