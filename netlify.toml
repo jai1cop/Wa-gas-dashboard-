@@ -7,3 +7,11 @@
   to = "https://gbbwa.aemo.com.au/api/v1/:splat"
   status = 200
   force = true
+
+# This new rule proxies requests from /bom-api/ path
+# to the live BOM weather data server.
+[[redirects]]
+  from = "/bom-api/*"
+  to = "http://www.bom.gov.au/:splat"
+  status = 200
+  force = true
