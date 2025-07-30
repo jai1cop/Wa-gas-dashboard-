@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, Area, ComposedChart, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, PieChart as PieIcon, Database, TrendingUp } from 'lucide-react';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, ReferenceArea, BarChart } from 'recharts';
+import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report"; // Use local proxy path
@@ -8,14 +8,6 @@ const AEMO_API_BASE_URL = "/api/report"; // Use local proxy path
 // Helper to get a date string in YYYY-MM-DD format
 const getISODateString = (date) => {
     return date.toISOString().split('T')[0];
-};
-
-const DEMAND_CATEGORY_COLORS = {
-    mining: '#f59e0b',
-    electricity: '#ef4444',
-    mineralsProcessing: '#8b5cf6',
-    industrial: '#3b82f6',
-    other: '#6b7280',
 };
 
 const STORAGE_COLORS = {
@@ -70,7 +62,7 @@ const ErrorDisplay = ({ message }) => (
 
 // --- CHART COMPONENTS ---
 
-function SupplyDemandChart({ data, facilityInfo }) {
+function SupplyDemandChart({ data, facilityInfo, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: data[data.length - 90]?.timestamp, end: data[data.length - 1]?.timestamp });
 
     const filteredData = useMemo(() => {
@@ -103,11 +95,13 @@ function SupplyDemandChart({ data, facilityInfo }) {
                         />
                         <Legend />
                         
+                        <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} yAxisId="left" stroke="none" fill="#f0f9ff" />
+
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => (
                             <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />
                         ))}
                         
-                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" />
+                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" strokeDasharray="5 5" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -147,63 +141,36 @@ function StorageAnalysisChart({ data, totalCapacity }) {
     );
 }
 
-function DemandBreakdownChart({ data }) {
-    const latestDayData = useMemo(() => {
+function FacilityConsumptionChart({ data }) {
+    const topConsumers = useMemo(() => {
         if (!data || data.length === 0) return [];
-        const latestDate = data[data.length - 1].gasDay;
-        const latestDataForDay = data.find(d => d.gasDay === latestDate);
-
-        if (!latestDataForDay) return [];
-
-        return Object.keys(DEMAND_CATEGORY_COLORS).map(key => ({
-            name: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()), // Format name for display
-            value: latestDataForDay[key] || 0
-        })).filter(d => d.value > 0);
-
+        // Get the latest gas day from the data
+        const latestGasDay = data.reduce((max, d) => d.gasDay > max ? d.gasDay : max, data[0].gasDay);
+        // Filter for that day and sort
+        return data.filter(d => d.gasDay === latestGasDay).sort((a, b) => b.quantity - a.quantity);
     }, [data]);
 
-    const latestDateFormatted = useMemo(() => {
-        if (!data || data.length === 0) return 'N/A';
-        return new Date(data[data.length - 1].gasDay).toLocaleDateString('en-AU', {day: 'numeric', month: 'long', year: 'numeric'});
-    }, [data]);
+     const latestDateFormatted = useMemo(() => {
+        if (!topConsumers || topConsumers.length === 0) return 'N/A';
+        return new Date(topConsumers[0].gasDay).toLocaleDateString('en-AU', {day: 'numeric', month: 'long', year: 'numeric'});
+    }, [topConsumers]);
 
     return (
         <Card>
             <div className="flex items-center mb-1">
-                <PieIcon className="w-6 h-6 mr-3 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-800">Consumption Breakdown</h2>
+                <Users className="w-6 h-6 mr-3 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-800">Top Consumers</h2>
             </div>
-            <p className="text-sm text-gray-500 mb-4">Large user consumption for {latestDateFormatted} (D-7).</p>
-            <div style={{ width: '100%', height: 352 }}>
-                <ResponsiveContainer>
-                    <PieChart>
-                        <Pie
-                            data={latestDayData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            outerRadius={120}
-                            fill="#8884d8"
-                            dataKey="value"
-                            nameKey="name"
-                            label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                                const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                                const x = cx + radius * Math.cos(-midAngle * (Math.PI / 180));
-                                const y = cy + radius * Math.sin(-midAngle * (Math.PI / 180));
-                                return (
-                                    <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="14" fontWeight="bold">
-                                        {`${(percent * 100).toFixed(0)}%`}
-                                    </text>
-                                );
-                            }}
-                        >
-                            {latestDayData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={DEMAND_CATEGORY_COLORS[entry.name.toLowerCase().replace(' ', '')]} />
-                            ))}
-                        </Pie>
+            <p className="text-sm text-gray-500 mb-4">Individual large user consumption for {latestDateFormatted} (D-7).</p>
+            <div className="h-96 overflow-y-auto pr-2">
+                <ResponsiveContainer width="100%" height={topConsumers.length * 40}>
+                    <BarChart layout="vertical" data={topConsumers} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis type="category" dataKey="facilityName" width={150} tick={{ fontSize: 12 }} />
                         <Tooltip formatter={(value) => `${value.toFixed(1)} TJ`} />
-                        <Legend />
-                    </PieChart>
+                        <Bar dataKey="quantity" name="Consumption" fill="#3b82f6" />
+                    </BarChart>
                 </ResponsiveContainer>
             </div>
         </Card>
@@ -253,7 +220,7 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
 
 function SummaryTiles({ data, storageData }) {
     if (!data || data.length === 0) return null;
-    const latestData = data[data.length - 1];
+    const latestData = data.filter(d => !d.isForecast)[data.filter(d => !d.isForecast).length - 1];
     const balance = latestData.totalSupply - latestData.totalDemand;
     
     const latestStorageFlow = storageData[storageData.length - 1]?.netFlow || 0;
@@ -269,10 +236,15 @@ function SummaryTiles({ data, storageData }) {
             </Card>
             <Card className="text-center">
                 <h3 className="text-sm font-medium text-gray-500">Net Storage Flow</h3>
-                <p className={`text-3xl font-bold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
-                    {latestStorageFlow.toFixed(0)}
-                </p>
-                <p className="text-xs text-gray-400">{latestStorageFlow >= 0 ? 'Net Injection' : 'Net Withdrawal'} (D-2)</p>
+                <div className="flex items-center justify-center space-x-2">
+                    <p className={`text-3xl font-bold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
+                        {latestStorageFlow.toFixed(0)}
+                    </p>
+                    <p className={`text-lg font-semibold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
+                        {latestStorageFlow >= 0 ? 'Inject' : 'Withdraw'}
+                    </p>
+                </div>
+                <p className="text-xs text-gray-400">TJ/day (D-2)</p>
             </Card>
         </div>
     );
@@ -285,10 +257,10 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, naviga
         <div className="space-y-6">
             <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
-            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} />
+            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} forecastStartDate={liveData.forecastStartDate} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <StorageAnalysisChart data={liveData.storageAnalysis} totalCapacity={liveData.totalStorageCapacity} />
-                <DemandBreakdownChart data={liveData.demandBreakdown} />
+                <FacilityConsumptionChart data={liveData.facilityConsumption} />
             </div>
              <div className="grid grid-cols-1">
                 <Card className="flex flex-col items-center justify-center text-center">
@@ -350,7 +322,8 @@ export default function App() {
         facilityInfo: {},
         storageAnalysis: [],
         totalStorageCapacity: 0,
-        demandBreakdown: []
+        facilityConsumption: [],
+        forecastStartDate: null,
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -372,7 +345,7 @@ export default function App() {
 
                 capacityData.rows.forEach(row => {
                     if (!facilityInfo[row.facilityName]) {
-                        let type = 'Pipeline'; // Default to pipeline
+                        let type = 'Pipeline';
                         if (row.capacityType.includes('Production')) type = 'Production';
                         if (row.capacityType.includes('Storage')) type = 'Storage';
                         
@@ -404,8 +377,8 @@ export default function App() {
                     date.setDate(today.getDate() - i);
                     const dateString = getISODateString(date);
                     flowPromises.push(fetch(`${AEMO_API_BASE_URL}/actualFlow/${dateString}`));
-                    if (i >= 7) { // Demand data is D-7
-                       demandPromises.push(fetch(`${AEMO_API_BASE_URL}/largeUserConsumptionByCategory/${dateString}`));
+                    if (i >= 7) {
+                       demandPromises.push(fetch(`${AEMO_API_BASE_URL}/largeUserConsumption/${dateString}`));
                     }
                 }
 
@@ -417,39 +390,23 @@ export default function App() {
 
                 // 3. Process data
                 const dailyData = {};
+                const facilityConsumption = demandReports.filter(Boolean).flatMap(r => r.rows);
                 
-                // Process consumption first to define demand
-                const demandBreakdown = demandReports.filter(Boolean).flatMap(r => r.rows);
-                demandReports.filter(Boolean).forEach(report => {
-                    const date = report.gasDay;
-                     if (!dailyData[date]) {
-                        dailyData[date] = {
-                            date: new Date(date).toLocaleDateString('en-CA'),
-                            timestamp: new Date(date).getTime(),
-                            totalDemand: 0,
-                            totalSupply: 0,
-                        };
+                facilityConsumption.forEach(item => {
+                    const date = item.gasDay;
+                    if (!dailyData[date]) {
+                        dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     }
-                    report.rows.forEach(row => {
-                        dailyData[date].totalDemand += row.total;
-                    });
+                    dailyData[date].totalDemand += item.quantity;
                 });
 
-                // Process flows for supply and storage
                 const storageFlows = {};
                 flowReports.filter(Boolean).forEach(report => {
                     const date = report.gasDay;
-                    if (!dailyData[date]) { // Initialize if not present from demand data
-                        dailyData[date] = {
-                            date: new Date(date).toLocaleDateString('en-CA'),
-                            timestamp: new Date(date).getTime(),
-                            totalDemand: 0,
-                            totalSupply: 0,
-                        };
+                    if (!dailyData[date]) {
+                        dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     }
-                     if (!storageFlows[date]) {
-                        storageFlows[date] = { netFlow: 0 };
-                    }
+                     if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
 
                     report.rows.forEach(row => {
                         const info = facilityInfo[row.facilityName];
@@ -463,35 +420,62 @@ export default function App() {
                     });
                 });
                 
-                const processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
+                let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
+                
+                // 4. Forecast consumption for recent days
+                const lastActualDataIndex = processedFlows.findIndex(d => d.totalDemand > 0);
+                if (lastActualDataIndex !== -1) {
+                    const last7DaysDemand = processedFlows.slice(lastActualDataIndex, lastActualDataIndex + 7).map(d => d.totalDemand);
+                    const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
+                    
+                    const forecastStartDate = new Date();
+                    forecastStartDate.setDate(today.getDate() - 6);
+                    
+                    for (let i = 6; i >= 0; i--) {
+                        const date = new Date(today);
+                        date.setDate(today.getDate() - i);
+                        const dateString = new Date(date).toLocaleDateString('en-CA');
+                        const existingEntry = processedFlows.find(d => d.date === dateString);
+                        if (!existingEntry || existingEntry.totalDemand === 0) {
+                            if (existingEntry) {
+                                existingEntry.totalDemand = forecastDemand;
+                                existingEntry.isForecast = true;
+                            } else {
+                                processedFlows.push({
+                                    date: dateString,
+                                    timestamp: date.getTime(),
+                                    totalDemand: forecastDemand,
+                                    totalSupply: 0, // No supply forecast
+                                    isForecast: true,
+                                });
+                            }
+                        }
+                    }
+                    processedFlows.sort((a,b) => a.timestamp - b.timestamp);
+                    setLiveData(prev => ({...prev, forecastStartDate: getISODateString(forecastStartDate)}));
+                }
+
                 const finalFlows = processedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
 
-                // Calculate storage inventory trend
                 const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
-                let currentVolume = totalStorageCapacity * 0.5; // Assumption: start at 50%
+                let currentVolume = totalStorageCapacity * 0.5;
                 const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
                     currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
-                    return {
-                        date: new Date(date).toLocaleDateString('en-CA'),
-                        netFlow: flows.netFlow,
-                        totalVolume: currentVolume
-                    }
+                    return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
                 });
 
-                // 4. Set all data and initial active facilities
-                setLiveData({
+                setLiveData(prev => ({
+                    ...prev,
                     processedFlows: finalFlows,
                     facilityInfo,
                     storageAnalysis,
                     totalStorageCapacity,
-                    demandBreakdown
-                });
+                    facilityConsumption
+                }));
 
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => {
-                    if (facilityInfo[name].type === 'Production') {
-                       initialActive[name] = true;
-                    }
+                    if (facilityInfo[name].type === 'Production') initialActive[name] = true;
                 });
                 setActiveFacilities(initialActive);
 
@@ -510,18 +494,14 @@ export default function App() {
     
     const filteredLiveData = useMemo(() => {
         if (!liveData.processedFlows) return liveData;
-
         const newFlows = liveData.processedFlows.map(day => {
             const newDay = { ...day, totalSupply: 0 };
             Object.keys(activeFacilities).forEach(facilityName => {
-                if (activeFacilities[facilityName]) {
-                    newDay.totalSupply += (day[facilityName] || 0);
-                }
+                if (activeFacilities[facilityName]) newDay.totalSupply += (day[facilityName] || 0);
             });
             return newDay;
         });
         return {...liveData, processedFlows: newFlows };
-
     }, [liveData, activeFacilities]);
 
 
