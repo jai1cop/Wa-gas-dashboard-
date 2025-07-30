@@ -1,14 +1,28 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, Area, ComposedChart } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader } from 'lucide-react';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, Area, ComposedChart, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
+import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, PieChart as PieIcon, Database, TrendingUp } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
-const AEMO_API_BASE_URL = "/api/report"; // CHANGED: Use local proxy path
+const AEMO_API_BASE_URL = "/api/report"; // Use local proxy path
 
 // Helper to get a date string in YYYY-MM-DD format
 const getISODateString = (date) => {
     return date.toISOString().split('T')[0];
 };
+
+const DEMAND_CATEGORY_COLORS = {
+    mining: '#f59e0b',
+    electricity: '#ef4444',
+    mineralsProcessing: '#8b5cf6',
+    industrial: '#3b82f6',
+    other: '#6b7280',
+};
+
+const STORAGE_COLORS = {
+    injection: '#22c55e',
+    withdrawal: '#dc2626',
+    volume: '#0ea5e9'
+}
 
 // --- HELPER COMPONENTS ---
 
@@ -32,7 +46,7 @@ const PageTitle = ({ children, backAction }) => (
 const LoadingSpinner = () => (
     <div className="flex flex-col items-center justify-center h-96">
         <Loader className="w-16 h-16 animate-spin text-blue-600" />
-        <p className="mt-4 text-lg text-gray-600">Connecting to AEMO GBB...</p>
+        <p className="mt-4 text-lg text-gray-600">Connecting to AEMO GBB (loading 2 years of data)...</p>
     </div>
 );
 
@@ -72,8 +86,8 @@ function SupplyDemandChart({ data, facilityInfo }) {
         <Card>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
                 <div>
-                    <h2 className="text-xl font-bold text-gray-800">WA Gas Supply-Demand Balance</h2>
-                    <p className="text-sm text-gray-500">Live data from AEMO GBB (Actuals D-2).</p>
+                    <h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2>
+                    <p className="text-sm text-gray-500">Supply from Production Facilities vs. Large User Consumption.</p>
                 </div>
                 <button onClick={resetZoom} className="mt-2 sm:mt-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Reset Zoom</button>
             </div>
@@ -89,15 +103,11 @@ function SupplyDemandChart({ data, facilityInfo }) {
                         />
                         <Legend />
                         
-                        <Area type="monotone" dataKey="demandMedianRange" fill="#e5e7eb" stroke="none" name="Demand Median Range" />
-                        
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => (
                             <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />
                         ))}
                         
-                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Demand" />
-                        <Line type="monotone" dataKey="lastYearDemand" stroke="#000000" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Prev. 12-Month Demand" />
-
+                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -105,36 +115,96 @@ function SupplyDemandChart({ data, facilityInfo }) {
     );
 }
 
-function MediumTermCapacityChart({data}) {
-     return (
+function StorageAnalysisChart({ data, totalCapacity }) {
+    return (
         <Card>
-            <h2 className="text-xl font-bold text-gray-800 mb-1">Medium Term Capacity Outlook</h2>
-            <p className="text-sm text-gray-500 mb-4">Live Outage & Maintenance Schedule from AEMO</p>
-            <div className="h-96 overflow-y-auto pr-2">
-                {data.length > 0 ? (
-                    <table className="w-full text-sm text-left text-gray-500">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
-                            <tr>
-                                <th scope="col" className="px-4 py-3">Facility</th>
-                                <th scope="col" className="px-4 py-3">Dates</th>
-                                <th scope="col" className="px-4 py-3">Capacity (TJ/d)</th>
-                                <th scope="col" className="px-4 py-3">Reason</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.map(item => (
-                                <tr key={item.rowId} className="bg-white border-b">
-                                    <td className="px-4 py-3 font-medium text-gray-900">{item.facilityName}</td>
-                                    <td className="px-4 py-3">{item.startGasDay} to {item.endGasDay}</td>
-                                    <td className="px-4 py-3 font-mono text-red-600">{item.capacity}</td>
-                                    <td className="px-4 py-3">{item.description}</td>
-                                </tr>
+            <div className="flex items-center mb-1">
+                <Database className="w-6 h-6 mr-3 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-800">Storage Inventory Analysis</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Daily net injections/withdrawals and estimated total inventory.</p>
+            <div style={{ width: '100%', height: 352 }}>
+                <ResponsiveContainer>
+                    <ComposedChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis yAxisId="left" orientation="left" stroke="#8884d8" label={{ value: 'Net Flow (TJ/d)', angle: -90, position: 'insideLeft' }} />
+                        <YAxis yAxisId="right" orientation="right" stroke={STORAGE_COLORS.volume} label={{ value: 'Total Inventory (TJ)', angle: 90, position: 'insideRight' }} />
+                        <Tooltip formatter={(value, name) => [`${value.toFixed(0)} TJ`, name]} />
+                        <Legend />
+                        <ReferenceLine y={totalCapacity} yAxisId="right" label={{ value: `Max Capacity (${totalCapacity} TJ)`, position: 'insideTopRight', fill: '#6b7280' }} stroke="red" strokeDasharray="3 3" />
+                        
+                        <Bar yAxisId="left" dataKey="netFlow" name="Net Injection/Withdrawal">
+                            {data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.netFlow >= 0 ? STORAGE_COLORS.injection : STORAGE_COLORS.withdrawal} />
                             ))}
-                        </tbody>
-                    </table>
-                ) : (
-                    <p className="text-center text-gray-500 pt-16">No medium-term capacity constraints reported by AEMO.</p>
-                )}
+                        </Bar>
+                        <Line yAxisId="right" type="monotone" dataKey="totalVolume" name="Estimated Total Inventory" stroke={STORAGE_COLORS.volume} strokeWidth={2} dot={false} />
+                    </ComposedChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+function DemandBreakdownChart({ data }) {
+    const latestDayData = useMemo(() => {
+        if (!data || data.length === 0) return [];
+        const latestDate = data[data.length - 1].gasDay;
+        const latestDataForDay = data.find(d => d.gasDay === latestDate);
+
+        if (!latestDataForDay) return [];
+
+        return Object.keys(DEMAND_CATEGORY_COLORS).map(key => ({
+            name: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()), // Format name for display
+            value: latestDataForDay[key] || 0
+        })).filter(d => d.value > 0);
+
+    }, [data]);
+
+    const latestDateFormatted = useMemo(() => {
+        if (!data || data.length === 0) return 'N/A';
+        return new Date(data[data.length - 1].gasDay).toLocaleDateString('en-AU', {day: 'numeric', month: 'long', year: 'numeric'});
+    }, [data]);
+
+    return (
+        <Card>
+            <div className="flex items-center mb-1">
+                <PieIcon className="w-6 h-6 mr-3 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-800">Consumption Breakdown</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Large user consumption for {latestDateFormatted} (D-7).</p>
+            <div style={{ width: '100%', height: 352 }}>
+                <ResponsiveContainer>
+                    <PieChart>
+                        <Pie
+                            data={latestDayData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            outerRadius={120}
+                            fill="#8884d8"
+                            dataKey="value"
+                            nameKey="name"
+                            label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                                const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                                const x = cx + radius * Math.cos(-midAngle * (Math.PI / 180));
+                                const y = cy + radius * Math.sin(-midAngle * (Math.PI / 180));
+                                return (
+                                    <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="14" fontWeight="bold">
+                                        {`${(percent * 100).toFixed(0)}%`}
+                                    </text>
+                                );
+                            }}
+                        >
+                            {latestDayData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={DEMAND_CATEGORY_COLORS[entry.name.toLowerCase().replace(' ', '')]} />
+                            ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => `${value.toFixed(1)} TJ`} />
+                        <Legend />
+                    </PieChart>
+                </ResponsiveContainer>
             </div>
         </Card>
     );
@@ -144,87 +214,65 @@ function MediumTermCapacityChart({data}) {
 
 function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities }) {
     const [isOpen, setIsOpen] = useState(false);
-    const zones = [...new Set(Object.values(facilityInfo).map(f => f.zone))];
+    const productionFacilities = Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production');
 
     const handleToggle = (facility) => {
         setActiveFacilities(prev => ({ ...prev, [facility]: !prev[facility] }));
     };
-
-    const handleZoneToggle = (zone, value) => {
-        const updatedFacilities = { ...activeFacilities };
-        Object.keys(facilityInfo).forEach(facility => {
-            if (facilityInfo[facility].zone === zone) {
-                updatedFacilities[facility] = value;
-            }
-        });
-        setActiveFacilities(updatedFacilities);
-    };
-
+    
     return (
         <div className="relative">
             <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-xl shadow-md text-lg font-semibold text-gray-700">
                 <div className="flex items-center">
                     <Settings className="w-6 h-6 mr-3 text-blue-600" />
-                    <span>Manage Facilities</span>
+                    <span>Manage Production Facilities</span>
                 </div>
                 {isOpen ? <ChevronUp /> : <ChevronDown />}
             </button>
             {isOpen && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-lg p-4 z-10">
-                    <p className="text-sm text-gray-600 mb-4">Select facilities to include in the supply stack.</p>
-                    {zones.map(zone => (
-                        <div key={zone} className="mb-4">
-                            <div className="flex justify-between items-center mb-2">
-                                <h4 className="font-bold text-gray-700">{zone}</h4>
-                                <div>
-                                    <button onClick={() => handleZoneToggle(zone, true)} className="text-xs text-blue-600 hover:underline mr-2">All</button>
-                                    <button onClick={() => handleZoneToggle(zone, false)} className="text-xs text-blue-600 hover:underline">None</button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                {Object.keys(facilityInfo).filter(f => facilityInfo[f].zone === zone).map(facility => (
-                                    <label key={facility} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={!!activeFacilities[facility]}
-                                            onChange={() => handleToggle(facility)}
-                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                        />
-                                        <span className="text-sm text-gray-800">{facility}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+                    <p className="text-sm text-gray-600 mb-4">Select production facilities to include in the supply stack.</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {productionFacilities.map(facility => (
+                            <label key={facility} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={!!activeFacilities[facility]}
+                                    onChange={() => handleToggle(facility)}
+                                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-gray-800">{facility}</span>
+                            </label>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>
     );
 }
 
-function SummaryTiles({ data }) {
+function SummaryTiles({ data, storageData }) {
     if (!data || data.length === 0) return null;
     const latestData = data[data.length - 1];
     const balance = latestData.totalSupply - latestData.totalDemand;
     
-    const storageFacilities = Object.keys(latestData).filter(key => key.toLowerCase().includes('tubridgi') || key.toLowerCase().includes('mondarra'));
-    const storageFlow = storageFacilities.reduce((acc, facility) => acc + (latestData[facility] || 0), 0);
+    const latestStorageFlow = storageData[storageData.length - 1]?.netFlow || 0;
 
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <Card className="text-center">
-                <h3 className="text-sm font-medium text-gray-500">Supply/Demand Balance (D-2)</h3>
+                <h3 className="text-sm font-medium text-gray-500">Production/Consumption Balance</h3>
                 <p className={`text-3xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {balance >= 0 ? '+' : ''}{balance.toFixed(0)}
                 </p>
-                <p className="text-xs text-gray-400">TJ/day</p>
+                <p className="text-xs text-gray-400">TJ/day (D-7)</p>
             </Card>
             <Card className="text-center">
-                <h3 className="text-sm font-medium text-gray-500">Storage Flow (D-2)</h3>
-                <p className={`text-3xl font-bold ${storageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
-                    {storageFlow.toFixed(0)}
+                <h3 className="text-sm font-medium text-gray-500">Net Storage Flow</h3>
+                <p className={`text-3xl font-bold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>
+                    {latestStorageFlow.toFixed(0)}
                 </p>
-                <p className="text-xs text-gray-400">{storageFlow >= 0 ? 'Net Injection' : 'Net Withdrawal'}</p>
+                <p className="text-xs text-gray-400">{latestStorageFlow >= 0 ? 'Net Injection' : 'Net Withdrawal'} (D-2)</p>
             </Card>
         </div>
     );
@@ -235,10 +283,13 @@ function SummaryTiles({ data }) {
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, navigateTo }) {
     return (
         <div className="space-y-6">
-            <SummaryTiles data={liveData.processedFlows} />
+            <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} />
-            <MediumTermCapacityChart data={liveData.mediumTermCapacity} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <StorageAnalysisChart data={liveData.storageAnalysis} totalCapacity={liveData.totalStorageCapacity} />
+                <DemandBreakdownChart data={liveData.demandBreakdown} />
+            </div>
              <div className="grid grid-cols-1">
                 <Card className="flex flex-col items-center justify-center text-center">
                     <h2 className="text-xl font-bold text-gray-800">Yara Pilbara Impact</h2>
@@ -253,7 +304,6 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, naviga
 }
 
 function YaraPage({ yaraAdjustment, setYaraAdjustment, navigateTo }) {
-    // This page remains as a simulator on top of live data
     const [localAdjustment, setLocalAdjustment] = useState(yaraAdjustment);
     
     const handleApply = () => {
@@ -265,9 +315,9 @@ function YaraPage({ yaraAdjustment, setYaraAdjustment, navigateTo }) {
         <div>
             <PageTitle backAction={() => navigateTo('dashboard')}>Yara Pilbara Scenario Planner</PageTitle>
             <Card className="flex flex-col justify-center max-w-md mx-auto">
-                <h2 className="text-xl font-bold text-gray-800 text-center mb-4">Adjust Market Demand</h2>
+                <h2 className="text-xl font-bold text-gray-800 text-center mb-4">Adjust Market Consumption</h2>
                 <p className="text-sm text-gray-600 text-center mb-6">
-                    Increase or reduce Yara's assumed consumption to see its effect on the overall WA gas market balance. This adjustment will be applied to the live demand data.
+                    Increase or reduce Yara's assumed consumption to see its effect on the overall WA gas market balance. This adjustment will be applied to the total consumption data.
                 </p>
                 <div className="flex items-center justify-center space-x-4 mb-4">
                     <button onClick={() => setLocalAdjustment(v => v - 10)} className="w-12 h-12 rounded-full bg-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-300">-</button>
@@ -279,7 +329,7 @@ function YaraPage({ yaraAdjustment, setYaraAdjustment, navigateTo }) {
                     </div>
                     <button onClick={() => setLocalAdjustment(v => v + 10)} className="w-12 h-12 rounded-full bg-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-300">+</button>
                 </div>
-                <p className="text-xs text-center text-gray-500 mb-6">This value will be added to the total market demand.</p>
+                <p className="text-xs text-center text-gray-500 mb-6">This value will be added to the total market consumption.</p>
                 <button onClick={handleApply} className="w-full py-3 font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700">
                     Apply Scenario & View Dashboard
                 </button>
@@ -298,7 +348,9 @@ export default function App() {
     const [liveData, setLiveData] = useState({
         processedFlows: [],
         facilityInfo: {},
-        mediumTermCapacity: []
+        storageAnalysis: [],
+        totalStorageCapacity: 0,
+        demandBreakdown: []
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -308,7 +360,7 @@ export default function App() {
             setLoading(true);
             setError(null);
             try {
-                // 1. Fetch facility info from Capacity Outlook to understand who is who
+                // 1. Fetch facility info and storage capacity
                 const capacityRes = await fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`);
                 if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText} (${capacityRes.status})`);
                 const capacityData = await capacityRes.json();
@@ -316,46 +368,61 @@ export default function App() {
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
+                let totalStorageCapacity = 0;
 
                 capacityData.rows.forEach(row => {
                     if (!facilityInfo[row.facilityName]) {
-                        let type = 'Other';
+                        let type = 'Pipeline'; // Default to pipeline
                         if (row.capacityType.includes('Production')) type = 'Production';
                         if (row.capacityType.includes('Storage')) type = 'Storage';
                         
-                        let zone = 'Unknown';
-                        if (row.facilityName.includes('Varanus') || row.facilityName.includes('Devil') || row.facilityName.includes('Macedon') || row.facilityName.includes('Wheatstone') || row.facilityName.includes('North West Shelf') || row.facilityName.includes('Scarborough')) {
-                            zone = 'Pilbara';
-                        } else if (type === 'Storage') {
-                            zone = 'Storage';
-                        }
-
                         facilityInfo[row.facilityName] = { 
                             type, 
-                            zone, 
                             color: colors[colorIndex % colors.length]
                         };
                         colorIndex++;
                     }
                 });
 
-                // 2. Fetch last 90 days of Actual Flow data
-                const datePromises = [];
+                const mtcRes = await fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`);
+                if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText} (${mtcRes.status})`);
+                const mtcData = await mtcRes.json();
+                mtcData.rows.forEach(row => {
+                    if (facilityInfo[row.facilityName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
+                        totalStorageCapacity += row.capacity;
+                    }
+                });
+
+
+                // 2. Fetch historical data (last 2 years)
                 const today = new Date();
-                for (let i = 2; i < 92; i++) { // AEMO data is for D-2, so start from 2 days ago
+                const flowPromises = [];
+                const demandPromises = [];
+
+                for (let i = 2; i < 732; i++) { 
                     const date = new Date(today);
                     date.setDate(today.getDate() - i);
-                    datePromises.push(fetch(`${AEMO_API_BASE_URL}/actualFlow/${getISODateString(date)}`));
+                    const dateString = getISODateString(date);
+                    flowPromises.push(fetch(`${AEMO_API_BASE_URL}/actualFlow/${dateString}`));
+                    if (i >= 7) { // Demand data is D-7
+                       demandPromises.push(fetch(`${AEMO_API_BASE_URL}/largeUserConsumptionByCategory/${dateString}`));
+                    }
                 }
 
-                const responses = await Promise.all(datePromises);
-                const flowReports = await Promise.all(responses.map(res => res.ok ? res.json() : null));
+                const flowResponses = await Promise.all(flowPromises);
+                const flowReports = await Promise.all(flowResponses.map(res => res.ok ? res.json() : null));
+                
+                const demandResponses = await Promise.all(demandPromises);
+                const demandReports = await Promise.all(demandResponses.map(res => res.ok ? res.json() : null));
 
-                // 3. Process the flow data
+                // 3. Process data
                 const dailyData = {};
-                flowReports.filter(report => report).forEach(report => {
+                
+                // Process consumption first to define demand
+                const demandBreakdown = demandReports.filter(Boolean).flatMap(r => r.rows);
+                demandReports.filter(Boolean).forEach(report => {
                     const date = report.gasDay;
-                    if (!dailyData[date]) {
+                     if (!dailyData[date]) {
                         dailyData[date] = {
                             date: new Date(date).toLocaleDateString('en-CA'),
                             timestamp: new Date(date).getTime(),
@@ -363,42 +430,68 @@ export default function App() {
                             totalSupply: 0,
                         };
                     }
+                    report.rows.forEach(row => {
+                        dailyData[date].totalDemand += row.total;
+                    });
+                });
+
+                // Process flows for supply and storage
+                const storageFlows = {};
+                flowReports.filter(Boolean).forEach(report => {
+                    const date = report.gasDay;
+                    if (!dailyData[date]) { // Initialize if not present from demand data
+                        dailyData[date] = {
+                            date: new Date(date).toLocaleDateString('en-CA'),
+                            timestamp: new Date(date).getTime(),
+                            totalDemand: 0,
+                            totalSupply: 0,
+                        };
+                    }
+                     if (!storageFlows[date]) {
+                        storageFlows[date] = { netFlow: 0 };
+                    }
 
                     report.rows.forEach(row => {
                         const info = facilityInfo[row.facilityName];
                         if (info?.type === 'Production') {
-                            dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + (row.receipt || 0);
-                            dailyData[date].totalSupply += (row.receipt || 0);
+                            const supply = row.receipt || 0;
+                            dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + supply;
+                            dailyData[date].totalSupply += supply;
                         } else if (info?.type === 'Storage') {
-                             dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + (row.receipt || 0) - (row.delivery || 0);
-                        }
-                        
-                        if (row.delivery) {
-                            dailyData[date].totalDemand += row.delivery;
+                            storageFlows[date].netFlow += (row.receipt || 0) - (row.delivery || 0);
                         }
                     });
                 });
                 
                 const processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
-                
-                // 4. Add Yara adjustment to demand
                 const finalFlows = processedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
 
-                // 5. Fetch Medium Term Capacity
-                const mtcRes = await fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`);
-                if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText} (${mtcRes.status})`);
-                const mtcData = await mtcRes.json();
+                // Calculate storage inventory trend
+                const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
+                let currentVolume = totalStorageCapacity * 0.5; // Assumption: start at 50%
+                const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
+                    currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
+                    return {
+                        date: new Date(date).toLocaleDateString('en-CA'),
+                        netFlow: flows.netFlow,
+                        totalVolume: currentVolume
+                    }
+                });
 
-                // 6. Set all data and initial active facilities
+                // 4. Set all data and initial active facilities
                 setLiveData({
                     processedFlows: finalFlows,
                     facilityInfo,
-                    mediumTermCapacity: mtcData.rows
+                    storageAnalysis,
+                    totalStorageCapacity,
+                    demandBreakdown
                 });
 
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => {
-                    initialActive[name] = true; // Default all to on
+                    if (facilityInfo[name].type === 'Production') {
+                       initialActive[name] = true;
+                    }
                 });
                 setActiveFacilities(initialActive);
 
@@ -411,21 +504,18 @@ export default function App() {
         };
 
         fetchAndProcessData();
-    }, [yaraAdjustment]); // Refetch if yaraAdjustment changes
+    }, [yaraAdjustment]);
 
     const navigateTo = (targetPage) => setPage(targetPage);
     
-    // Filter data based on active facilities
     const filteredLiveData = useMemo(() => {
         if (!liveData.processedFlows) return liveData;
 
         const newFlows = liveData.processedFlows.map(day => {
             const newDay = { ...day, totalSupply: 0 };
             Object.keys(activeFacilities).forEach(facilityName => {
-                if (activeFacilities[facilityName] && liveData.facilityInfo[facilityName]?.type === 'Production') {
+                if (activeFacilities[facilityName]) {
                     newDay.totalSupply += (day[facilityName] || 0);
-                } else {
-                    newDay[facilityName] = 0; // Set to 0 if not active
                 }
             });
             return newDay;
