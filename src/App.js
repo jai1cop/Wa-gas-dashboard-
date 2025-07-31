@@ -12,7 +12,7 @@ const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
 const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
 const VOLATILITY_COLOR = '#8884d8';
 
-// CORRECTED: Map common names to the names used in the flow/consumption reports
+// Map common names to the names used in the flow/consumption reports
 const AEMO_FACILITY_NAME_MAP = {
     "Karratha Gas Plant": "North West Shelf",
     // Add other mappings here if discovered
@@ -49,7 +49,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="w-6 h-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -308,7 +308,11 @@ export default function App() {
     const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    
+    // This state will hold the raw, unprocessed data
+    const [baseData, setBaseData] = useState(null);
 
+    // This effect fetches data only once
     useEffect(() => {
         const fetchAndProcessData = async () => {
             setLoading(true); setError(null);
@@ -325,7 +329,6 @@ export default function App() {
                 const mtcData = await mtcRes.json();
 
                 const facilityInfo = {};
-                const displayNames = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
                 
@@ -362,72 +365,8 @@ export default function App() {
                 const responses = await Promise.all(monthPromises);
                 const csvTexts = await Promise.all(responses.map(res => res.ok ? res.text() : ''));
                 
-                // 3. Process data
-                const dailyData = {};
-                const facilityConsumptionData = [];
-                const storageFlows = {};
+                setBaseData({ csvTexts, facilityInfo, totalStorageCapacity });
 
-                csvTexts.forEach(csv => {
-                    if (!csv) return;
-                    const parsed = parseCSV(csv);
-                    if (parsed.length === 0) return;
-
-                    if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
-                        parsed.forEach(row => {
-                            const date = row.gasDay;
-                            if (!date) return;
-                            const dataName = row.facilityName;
-                            if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                            if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
-                            
-                            const isProduction = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Production');
-                            const isStorage = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Storage');
-
-                            if (isProduction && row.zoneCode && !row.gateStationCode) {
-                                const supply = parseFloat(row.receipt) || 0;
-                                dailyData[date][dataName] = (dailyData[date][dataName] || 0) + supply;
-                                dailyData[date].totalSupply += supply;
-                            } else if (isStorage) {
-                                storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
-                            }
-                        });
-                    } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
-                        parsed.forEach(item => {
-                            const date = item.gasDay;
-                            if (!date) return;
-                            if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                            const quantity = parseFloat(item.quantity) || 0;
-                            dailyData[date].totalDemand += quantity;
-                            facilityConsumptionData.push({ ...item, quantity });
-                        });
-                    }
-                });
-                
-                let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
-                
-                processedFlows = processedFlows.filter(d => d.totalDemand > 0 && d.totalSupply > 0);
-
-                const finalFlows = processedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
-
-                // 5. Calculate Storage and Volatility
-                const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
-                let currentVolume = totalStorageCapacity * 0.5;
-                const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
-                    currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
-                    return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
-                });
-
-                const balanceData = finalFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
-                const volatility = [];
-                for (let i = 29; i < balanceData.length; i++) {
-                    const slice = balanceData.slice(i - 29, i + 1).map(d => d.balance);
-                    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
-                    const stdDev = Math.sqrt(slice.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / slice.length);
-                    volatility.push({ date: balanceData[i].date, volatility: stdDev });
-                }
-
-                // 6. Set all state
-                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, volatility });
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
@@ -436,7 +375,82 @@ export default function App() {
             finally { setLoading(false); }
         };
         fetchAndProcessData();
-    }, [yaraAdjustment]);
+    }, []); // Empty dependency array means this runs only once
+
+    // This effect processes the data whenever baseData or yaraAdjustment changes
+    useEffect(() => {
+        if (!baseData) return;
+
+        const { csvTexts, facilityInfo, totalStorageCapacity } = baseData;
+        
+        // 3. Process data
+        const dailyData = {};
+        const facilityConsumptionData = [];
+        const storageFlows = {};
+
+        csvTexts.forEach(csv => {
+            if (!csv) return;
+            const parsed = parseCSV(csv);
+            if (parsed.length === 0) return;
+
+            if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
+                parsed.forEach(row => {
+                    const date = row.gasDay;
+                    if (!date) return;
+                    const dataName = row.facilityName;
+                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                    if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
+                    
+                    const isProduction = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Production');
+                    const isStorage = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Storage');
+
+                    if (isProduction && row.zoneCode && !row.gateStationCode) {
+                        const supply = parseFloat(row.receipt) || 0;
+                        dailyData[date][dataName] = (dailyData[date][dataName] || 0) + supply;
+                        dailyData[date].totalSupply += supply;
+                    } else if (isStorage) {
+                        storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
+                    }
+                });
+            } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
+                parsed.forEach(item => {
+                    const date = item.gasDay;
+                    if (!date) return;
+                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                    const quantity = parseFloat(item.quantity) || 0;
+                    dailyData[date].totalDemand += quantity;
+                    facilityConsumptionData.push({ ...item, quantity });
+                });
+            }
+        });
+        
+        let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
+        
+        const alignedFlows = processedFlows.filter(d => d.totalDemand > 0 && d.totalSupply > 0);
+
+        const finalFlows = alignedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
+
+        // 5. Calculate Storage and Volatility
+        const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
+        let currentVolume = totalStorageCapacity * 0.5;
+        const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
+            currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
+            return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
+        });
+
+        const balanceData = finalFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
+        const volatility = [];
+        for (let i = 29; i < balanceData.length; i++) {
+            const slice = balanceData.slice(i - 29, i + 1).map(d => d.balance);
+            const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+            const stdDev = Math.sqrt(slice.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / slice.length);
+            volatility.push({ date: balanceData[i].date, volatility: stdDev });
+        }
+
+        // 6. Set all state
+        setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, volatility });
+
+    }, [baseData, yaraAdjustment]);
 
     const navigateTo = (targetPage) => setPage(targetPage);
     
