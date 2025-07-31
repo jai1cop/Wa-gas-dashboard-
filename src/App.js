@@ -2,11 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, BarChart, AreaChart, Area as RechartsArea, ReferenceArea } from 'recharts';
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2 } from 'lucide-react';
 
+
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
 const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
 const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
 const VOLATILITY_COLOR = '#8884d8';
+
 
 // --- DATA CONFIGURATION ---
 // Explicitly define the primary production facilities based on real-world data.
@@ -16,10 +18,20 @@ const PRODUCTION_FACILITIES = [
     "Walyering Production Facility", "Beharra Springs"
 ];
 
+
 // Map display names to data names if they differ
 const AEMO_FACILITY_NAME_MAP = {
     "Karratha Gas Plant": "North West Shelf",
+    "Gorgon Gas Plant": "Gorgon",
+    "North West Shelf": "Karratha Gas Plant",
+    // Add other mappings as discovered from API data
 };
+
+// Reverse mapping for data processing
+const DATA_TO_DISPLAY_NAME_MAP = Object.fromEntries(
+    Object.entries(AEMO_FACILITY_NAME_MAP).map(([display, data]) => [data, display])
+);
+
 
 // --- HELPER FUNCTIONS ---
 const parseCSV = (csvText) => {
@@ -34,6 +46,24 @@ const parseCSV = (csvText) => {
         }, {});
     });
 };
+
+// Debug function to identify facility names from API
+const debugFacilityNames = (csvTexts) => {
+    const facilityNames = new Set();
+    csvTexts.forEach(csv => {
+        if (!csv) return;
+        const parsed = parseCSV(csv);
+        parsed.forEach(row => {
+            if (row.facilityName) {
+                facilityNames.add(row.facilityName);
+            }
+        });
+    });
+    console.log('All facility names from API:', Array.from(facilityNames).sort());
+    console.log('Production facilities we are looking for:', PRODUCTION_FACILITIES);
+    console.log('Current name mappings:', AEMO_FACILITY_NAME_MAP);
+};
+
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
@@ -53,9 +83,11 @@ const ErrorDisplay = ({ message }) => (
     <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
+
 // --- CHART COMPONENTS ---
 function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: null, end: null });
+
 
     useEffect(() => {
         if (data.length > 0) {
@@ -66,10 +98,12 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
         }
     }, [data]);
 
+
     const filteredData = useMemo(() => {
         if (!dateRange.start || !dateRange.end || !data) return [];
         return data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
     }, [data, dateRange]);
+
 
     const resetZoom = () => {
         if (data.length > 0) {
@@ -79,6 +113,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
             });
         }
     };
+
 
     return (
         <Card>
@@ -95,7 +130,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                         <Tooltip contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '0.5rem', border: '1px solid #ccc' }} formatter={(value, name) => [typeof value === 'number' ? value.toFixed(0) : value, name]} />
                         <Legend />
                         <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} stroke="none" fill="#f0f9ff" />
-                        {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={AEMO_FACILITY_NAME_MAP[facility] || facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
+                        {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
                         <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" strokeDasharray="5 5" />
                     </ComposedChart>
@@ -104,6 +139,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
         </Card>
     );
 }
+
 
 function SupplyChart({ data }) {
     return (
@@ -124,6 +160,7 @@ function SupplyChart({ data }) {
         </Card>
     );
 }
+
 
 function StorageAnalysisChart({ data, totalCapacity }) {
     return (
@@ -149,6 +186,7 @@ function StorageAnalysisChart({ data, totalCapacity }) {
     );
 }
 
+
 function FacilityConsumptionChart({ data }) {
     const topConsumers = useMemo(() => {
         if (!data || data.length === 0) return [];
@@ -156,6 +194,7 @@ function FacilityConsumptionChart({ data }) {
         return data.filter(d => d.gasDay === latestGasDay).sort((a, b) => b.quantity - a.quantity);
     }, [data]);
     const latestDateFormatted = useMemo(() => topConsumers.length > 0 ? new Date(topConsumers[0].gasDay).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A', [topConsumers]);
+
 
     return (
         <Card>
@@ -175,6 +214,7 @@ function FacilityConsumptionChart({ data }) {
         </Card>
     );
 }
+
 
 function VolatilityChart({ data }) {
     return (
@@ -196,6 +236,7 @@ function VolatilityChart({ data }) {
     );
 }
 
+
 // --- UI & LAYOUT COMPONENTS ---
 function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -207,12 +248,14 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
     );
 }
 
+
 function SummaryTiles({ data, storageData, volatility }) {
     if (!data || data.length === 0) return null;
     const latestActualData = data[data.length - 1];
     const balance = latestActualData ? latestActualData.totalSupply - latestActualData.totalDemand : 0;
     const latestStorageFlow = storageData.length > 0 ? storageData[storageData.length - 1].netFlow : 0;
     const latestVolatility = volatility.length > 0 ? volatility[volatility.length - 1].volatility : 0;
+
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
@@ -223,14 +266,18 @@ function SummaryTiles({ data, storageData, volatility }) {
     );
 }
 
+
 function ScenarioPlanner({ facilities, scenario, setScenario, onApply }) {
     const [localScenario, setLocalScenario] = useState(scenario);
     const productionFacilities = Object.keys(facilities).filter(f => facilities[f].type === 'Production');
 
+
     useEffect(() => { setLocalScenario(scenario); }, [scenario]);
+
 
     const handleApply = () => { onApply(localScenario); };
     const handleReset = () => { onApply({ active: false, facility: null, outagePercent: 100, startDate: '', endDate: '' }); };
+
 
     return (
         <Card>
@@ -255,6 +302,7 @@ function ScenarioPlanner({ facilities, scenario, setScenario, onApply }) {
         </Card>
     );
 }
+
 
 function StrategySection() {
     const [isOpen, setIsOpen] = useState(false);
@@ -294,6 +342,7 @@ function StrategySection() {
     );
 }
 
+
 // --- PAGE COMPONENTS ---
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo }) {
     return (
@@ -314,6 +363,7 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenar
     );
 }
 
+
 function YaraPage({ yaraAdjustment, setYaraAdjustment, navigateTo }) {
     const [localAdjustment, setLocalAdjustment] = useState(yaraAdjustment);
     const handleApply = () => { setYaraAdjustment(localAdjustment); navigateTo('dashboard'); };
@@ -321,6 +371,7 @@ function YaraPage({ yaraAdjustment, setYaraAdjustment, navigateTo }) {
         <div><PageTitle backAction={() => navigateTo('dashboard')}>Yara Pilbara Scenario Planner</PageTitle><Card className="flex flex-col justify-center max-w-md mx-auto"><h2 className="text-xl font-bold text-gray-800 text-center mb-4">Adjust Market Consumption</h2><p className="text-sm text-gray-600 text-center mb-6">Increase or reduce Yara's assumed consumption to see its effect on the overall WA gas market balance. This adjustment will be applied to the total consumption data.</p><div className="flex items-center justify-center space-x-4 mb-4"><button onClick={() => setLocalAdjustment(v => v - 10)} className="w-12 h-12 rounded-full bg-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-300">-</button><div className="text-center"><p className={`text-4xl font-bold ${localAdjustment > 0 ? 'text-red-500' : localAdjustment < 0 ? 'text-green-500' : 'text-gray-800'}`}>{localAdjustment >= 0 ? '+' : ''}{localAdjustment}</p><p className="text-sm text-gray-500">TJ/day</p></div><button onClick={() => setLocalAdjustment(v => v + 10)} className="w-12 h-12 rounded-full bg-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-300">+</button></div><p className="text-xs text-center text-gray-500 mb-6">This value will be added to the total market consumption.</p><button onClick={handleApply} className="w-full py-3 font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700">Apply Scenario & View Dashboard</button></Card></div>
     );
 }
+
 
 // --- MAIN APP COMPONENT ---
 export default function App() {
@@ -333,6 +384,7 @@ export default function App() {
     const [error, setError] = useState(null);
     
     const [baseData, setBaseData] = useState(null);
+
 
     useEffect(() => {
         const fetchAndProcessData = async () => {
@@ -348,28 +400,37 @@ export default function App() {
                 const capacityData = await capacityRes.json();
                 const mtcData = await mtcRes.json();
 
+
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
                 
                 capacityData.rows.forEach(row => {
-                    const displayName = row.facilityName;
-                    const dataName = AEMO_FACILITY_NAME_MAP[displayName] || displayName;
+                    const apiName = row.facilityName;
+                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
+                    
                     if (!facilityInfo[displayName]) {
                         let type = 'Pipeline';
                         if (row.capacityType.includes('Production')) type = 'Production';
                         if (row.capacityType.includes('Storage')) type = 'Storage';
-                        facilityInfo[displayName] = { type, color: colors[colorIndex++ % colors.length], dataName };
+                        facilityInfo[displayName] = { 
+                            type, 
+                            color: colors[colorIndex++ % colors.length], 
+                            dataName: apiName,
+                            displayName: displayName
+                        };
                     }
                 });
                 
                 const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
-                    const displayName = row.facilityName;
+                    const apiName = row.facilityName;
+                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
                     if (facilityInfo[displayName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
                         return acc + row.capacity;
                     }
                     return acc;
                 }, 0);
+
 
                 const today = new Date();
                 const monthPromises = [];
@@ -386,9 +447,11 @@ export default function App() {
                 
                 setBaseData({ csvTexts, facilityInfo, totalStorageCapacity });
 
+
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
+
 
             } catch (err) { console.error("API Error:", err); setError(err.message); } 
             finally { setLoading(false); }
@@ -396,35 +459,62 @@ export default function App() {
         fetchAndProcessData();
     }, []);
 
+
     useEffect(() => {
         if (!baseData) return;
 
+
         const { csvTexts, facilityInfo, totalStorageCapacity } = baseData;
+        
+        // Debug facility names from API
+        debugFacilityNames(csvTexts);
         
         const dailyData = {};
         const facilityConsumptionData = [];
         const storageFlows = {};
+
 
         csvTexts.forEach(csv => {
             if (!csv) return;
             const parsed = parseCSV(csv);
             if (parsed.length === 0) return;
 
+
             if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
                 parsed.forEach(row => {
                     const date = row.gasDay;
                     if (!date) return;
-                    const dataName = row.facilityName;
-                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                    
+                    const apiName = row.facilityName;
+                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
+                    
+                    if (!dailyData[date]) {
+                        dailyData[date] = { 
+                            date: new Date(date).toLocaleDateString('en-CA'), 
+                            timestamp: new Date(date).getTime(), 
+                            totalDemand: 0, 
+                            totalSupply: 0 
+                        };
+                    }
                     if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
                     
-                    const isProduction = PRODUCTION_FACILITIES.includes(dataName);
-                    const isStorage = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Storage');
+                    // Check if this is a production facility (use display name for consistency)
+                    const isProduction = PRODUCTION_FACILITIES.includes(displayName);
+                    const isStorage = Object.values(facilityInfo).some(f => 
+                        (f.dataName === apiName || AEMO_FACILITY_NAME_MAP[f.dataName] === apiName) && f.type === 'Storage'
+                    );
 
                     if (isProduction) {
                         const supply = parseFloat(row.receipt) || 0;
-                        if (!dailyData[date][dataName] || supply > dailyData[date][dataName]) {
-                           dailyData[date][dataName] = supply;
+                        // SUM multiple data points instead of taking max
+                        if (!dailyData[date][displayName]) {
+                            dailyData[date][displayName] = 0;
+                        }
+                        dailyData[date][displayName] += supply;
+                        
+                        // Debug logging for Gorgon and North West Shelf
+                        if (displayName.includes('Gorgon') || displayName.includes('North West Shelf')) {
+                            console.log(`${date}: ${displayName} (API: ${apiName}) += ${supply} = ${dailyData[date][displayName]}`);
                         }
                     } else if (isStorage) {
                         storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
@@ -442,9 +532,13 @@ export default function App() {
             }
         });
         
+        // Calculate total supply using display names consistently
         Object.values(dailyData).forEach(day => {
-            day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => sum + (day[facility] || 0), 0);
+            day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => {
+                return sum + (day[facility] || 0);
+            }, 0);
         });
+
 
         let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
         
@@ -458,17 +552,21 @@ export default function App() {
         const forecastStartDate = new Date(lastActualConsumptionDate);
         forecastStartDate.setDate(forecastStartDate.getDate() + 1);
 
+
         const supplyOnlyData = processedFlows.filter(d => d.totalSupply > 0);
+
 
         const forecastDays = [];
         const today = new Date();
         const d2 = new Date();
         d2.setDate(today.getDate() - 2);
 
+
         for (let i = 0; i < 5; i++) {
             const date = new Date(forecastStartDate);
             date.setDate(date.getDate() + i);
             if (date > d2) break;
+
 
             const dateString = new Date(date).toLocaleDateString('en-CA');
             const supplyData = supplyOnlyData.find(d => d.date === dateString);
@@ -481,7 +579,9 @@ export default function App() {
         
         const finalFlows = [...alignedFlows, ...forecastDays];
 
+
         const finalFlowsWithYara = finalFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
+
 
         const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
         let currentVolume = totalStorageCapacity * 0.5;
@@ -489,6 +589,7 @@ export default function App() {
             currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
             return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
         });
+
 
         const balanceData = alignedFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
         const volatility = [];
@@ -498,6 +599,7 @@ export default function App() {
             const stdDev = Math.sqrt(slice.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / slice.length);
             volatility.push({ date: balanceData[i].date, volatility: stdDev });
         }
+
 
         setLiveData({ 
             processedFlows: finalFlowsWithYara, 
@@ -511,7 +613,9 @@ export default function App() {
             forecastStartDate: new Date(forecastStartDate).toLocaleDateString('en-CA')
         });
 
+
     }, [baseData, yaraAdjustment]);
+
 
     const navigateTo = (targetPage) => setPage(targetPage);
     
@@ -521,8 +625,7 @@ export default function App() {
             const newDay = { ...day, totalSupply: 0, simulatedSupply: 0 };
             let scenarioImpact = 0;
             Object.keys(activeFacilities).forEach(facilityName => {
-                const dataName = AEMO_FACILITY_NAME_MAP[facilityName] || facilityName;
-                const baseSupply = day[dataName] || 0;
+                const baseSupply = day[facilityName] || 0;
                 if (activeFacilities[facilityName]) newDay.totalSupply += baseSupply;
                 if (scenario.active && facilityName === scenario.facility) {
                     scenarioImpact = baseSupply * (scenario.outagePercent / 100);
@@ -533,6 +636,7 @@ export default function App() {
         });
         return {...liveData, processedFlows: newFlows };
     }, [liveData, activeFacilities, scenario]);
+
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
