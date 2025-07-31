@@ -4,7 +4,6 @@ import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Use
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
-const BOM_API_BASE_URL = "/bom-api";
 
 // Helper to get a date string in YYYY-MM-DD format
 const getISODateString = (date) => date.toISOString().split('T')[0];
@@ -23,11 +22,11 @@ const PageTitle = ({ children, backAction }) => (
 const LoadingSpinner = () => (
     <div className="flex flex-col items-center justify-center h-96">
         <Loader className="w-16 h-16 animate-spin text-blue-600" />
-        <p className="mt-4 text-lg text-gray-600">Connecting to AEMO & BOM (loading 2 years of data)...</p>
+        <p className="mt-4 text-lg text-gray-600">Connecting to AEMO GBB (loading 2 years of data)...</p>
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p>{message.includes('Failed to fetch') && <p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p>}</div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -143,7 +142,7 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
     );
 }
 
-function SummaryTiles({ data, storageData, weatherData, volatility }) {
+function SummaryTiles({ data, storageData, volatility }) {
     if (!data || data.length === 0) return null;
     const latestActualData = data.filter(d => !d.isForecast).pop();
     const balance = latestActualData ? latestActualData.totalSupply - latestActualData.totalDemand : 0;
@@ -151,11 +150,10 @@ function SummaryTiles({ data, storageData, weatherData, volatility }) {
     const latestVolatility = volatility.length > 0 ? volatility[volatility.length - 1].volatility : 0;
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
             <Card className="text-center"><h3 className="text-sm font-medium text-gray-500">Prod/Cons Balance</h3><p className={`text-3xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>{balance >= 0 ? '+' : ''}{balance.toFixed(0)}</p><p className="text-xs text-gray-400">TJ/day (D-7)</p></Card>
             <Card className="text-center"><h3 className="text-sm font-medium text-gray-500">Net Storage Flow</h3><div className="flex items-center justify-center space-x-2"><p className={`text-3xl font-bold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>{latestStorageFlow.toFixed(0)}</p><p className={`text-lg font-semibold ${latestStorageFlow >= 0 ? 'text-blue-600' : 'text-purple-600'}`}>{latestStorageFlow >= 0 ? 'Inject' : 'Withdraw'}</p></div><p className="text-xs text-gray-400">TJ/day (D-2)</p></Card>
             <Card className="text-center"><h3 className="text-sm font-medium text-gray-500">Balance Volatility</h3><p className="text-3xl font-bold text-gray-700">{latestVolatility.toFixed(1)}</p><p className="text-xs text-gray-400">30-Day Std. Dev.</p></Card>
-            <Card className="text-center"><h3 className="text-sm font-medium text-gray-500">Perth Temp.</h3><div className="flex items-center justify-center space-x-2"><p className="text-3xl font-bold text-gray-800">{weatherData?.temp ?? 'N/A'}</p><p className="text-lg font-semibold text-gray-600">°C</p></div><p className="text-xs text-gray-400">Live BOM Data</p></Card>
         </div>
     );
 }
@@ -197,7 +195,7 @@ function ScenarioPlanner({ facilities, scenario, setScenario, onApply }) {
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo }) {
     return (
         <div className="space-y-6">
-            <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} weatherData={liveData.weather} volatility={liveData.volatility} />
+            <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} forecastStartDate={liveData.forecastStartDate} scenario={scenario} />
@@ -225,7 +223,7 @@ export default function App() {
     const [yaraAdjustment, setYaraAdjustment] = useState(0);
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
-    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], forecastStartDate: null, volatility: [], weather: null });
+    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], forecastStartDate: null, volatility: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -234,19 +232,15 @@ export default function App() {
             setLoading(true); setError(null);
             try {
                 // 1. Fetch static and semi-static data
-                const [capacityRes, mtcRes, weatherRes] = await Promise.all([
+                const [capacityRes, mtcRes] = await Promise.all([
                     fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`).catch(e => { throw new Error(`AEMO Capacity Outlook fetch failed: ${e.message}`) }),
                     fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`).catch(e => { throw new Error(`AEMO MTC fetch failed: ${e.message}`) }),
-                    fetch(`${BOM_API_BASE_URL}/fwo/IDW60901/IDW60901.94614.json`).catch(e => { throw new Error(`BOM Weather fetch failed: ${e.message}`) })
                 ]);
                 if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText}`);
                 if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
-                if (!weatherRes.ok) throw new Error(`Failed to fetch BOM Weather Data: ${weatherRes.statusText}`);
                 
                 const capacityData = await capacityRes.json();
                 const mtcData = await mtcRes.json();
-                const bomData = await weatherRes.json();
-                const weather = bomData.observations.data[0] ? { temp: bomData.observations.data[0].air_temp } : null;
 
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
@@ -275,8 +269,6 @@ export default function App() {
 
                 // 3. Process data
                 const dailyData = {};
-                
-                // Corrected Demand Processing
                 const facilityConsumptionData = [];
                 reports.filter(r => r?.type === 'demand').forEach(report => {
                     if (!report?.gasDay || !report.rows) return;
@@ -284,7 +276,7 @@ export default function App() {
                     if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     report.rows.forEach(item => {
                         dailyData[date].totalDemand += item.quantity;
-                        facilityConsumptionData.push(item); // Keep the gasDay property on each item
+                        facilityConsumptionData.push(item);
                     });
                 });
                 
@@ -345,7 +337,7 @@ export default function App() {
                 }
 
                 // 6. Set all state
-                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, forecastStartDate, volatility, weather });
+                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, forecastStartDate, volatility });
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
@@ -378,14 +370,14 @@ export default function App() {
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
-            <header className="bg-white shadow-sm"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4"><h1 className="text-3xl font-bold text-gray-900">WA Gas Dashboard</h1><p className="text-sm text-gray-500">Live Data from AEMO & BOM, with Trader Analytics</p></div></header>
+            <header className="bg-white shadow-sm"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4"><h1 className="text-3xl font-bold text-gray-900">WA Gas Dashboard</h1><p className="text-sm text-gray-500">Live Data from AEMO, with Trader Analytics</p></div></header>
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 {loading && <LoadingSpinner />}
                 {error && <ErrorDisplay message={error} />}
                 {!loading && !error && page === 'dashboard' && <DashboardPage liveData={filteredLiveData} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} scenario={scenario} setScenario={setScenario} navigateTo={navigateTo} />}
                 {!loading && !error && page === 'yara' && <YaraPage yaraAdjustment={yaraAdjustment} setYaraAdjustment={setYaraAdjustment} navigateTo={navigateTo} />}
             </main>
-            <footer className="text-center py-4"><p className="text-xs text-gray-500">Dashboard data sourced from AEMO GBB & BOM APIs. Last updated: {new Date().toLocaleString()}.</p></footer>
+            <footer className="text-center py-4"><p className="text-xs text-gray-500">Dashboard data sourced from AEMO GBB API. Last updated: {new Date().toLocaleString()}.</p></footer>
         </div>
     );
 }
