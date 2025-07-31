@@ -413,7 +413,7 @@ export default function App() {
         </div>
     );
 }
-```" in the immersive "App.js (Final Version with Trader Features)" and am asking a question about the selected code below.
+```" in the immersive "App.js (Final Version with Trader Features)" and am asking a question about the selected code below.```
 Instructions to follow:
   * Don't output/edit the document if the query is Direct/Simple. For example, if the query asks for a simple explanation, output a direct answer.
   * Make sure to **edit** the document if the query shows the intent of editing the document, in which case output the entire edited document, **not just that section or the edits**.
