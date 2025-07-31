@@ -7,9 +7,25 @@ const AEMO_API_BASE_URL = "/api/report";
 
 // Helper to get a date string in YYYY-MM-DD format
 const getISODateString = (date) => date.toISOString().split('T')[0];
+const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
 
 const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
 const VOLATILITY_COLOR = '#8884d8';
+
+// --- HELPER FUNCTIONS ---
+const parseCSV = (csvText) => {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) return [];
+    const header = lines[0].split(',').map(h => h.trim());
+    return lines.slice(1).map(line => {
+        const values = line.split(',');
+        return header.reduce((obj, nextKey, index) => {
+            obj[nextKey] = values[index] ? values[index].trim() : '';
+            return obj;
+        }, {});
+    });
+};
+
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
@@ -233,8 +249,8 @@ export default function App() {
             try {
                 // 1. Fetch static and semi-static data
                 const [capacityRes, mtcRes] = await Promise.all([
-                    fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`).catch(e => { throw new Error(`AEMO Capacity Outlook fetch failed: ${e.message}`) }),
-                    fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`).catch(e => { throw new Error(`AEMO MTC fetch failed: ${e.message}`) }),
+                    fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`),
+                    fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`),
                 ]);
                 if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText}`);
                 if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
@@ -255,47 +271,57 @@ export default function App() {
                 });
                 const totalStorageCapacity = mtcData.rows.reduce((acc, row) => (facilityInfo[row.facilityName]?.type === 'Storage' && row.capacityType === 'Nameplate') ? acc + row.capacity : acc, 0);
 
-                // 2. Fetch historical data (last 2 years)
+                // 2. Fetch historical data in monthly batches
                 const today = new Date();
-                const datePromises = [];
-                for (let i = 2; i < 732; i++) {
-                    const date = new Date(); date.setDate(today.getDate() - i);
-                    const dateString = getISODateString(date);
-                    datePromises.push({ date: dateString, type: 'flow', promise: fetch(`${AEMO_API_BASE_URL}/actualFlow/${dateString}`) });
-                    if (i >= 7) datePromises.push({ date: dateString, type: 'demand', promise: fetch(`${AEMO_API_BASE_URL}/largeUserConsumption/${dateString}`) });
+                const monthPromises = [];
+                for (let i = 0; i < 24; i++) {
+                    const date = new Date(today);
+                    date.setMonth(today.getMonth() - i);
+                    const monthString = getYYYYMMString(date);
+                    monthPromises.push(fetch(`${AEMO_API_BASE_URL}/actualFlow/${monthString}.csv`));
+                    monthPromises.push(fetch(`${AEMO_API_BASE_URL}/largeUserConsumption/${monthString}.csv`));
                 }
-                const responses = await Promise.all(datePromises.map(p => p.promise));
-                const reports = await Promise.all(responses.map((res, i) => res.ok ? res.json().then(data => ({ ...data, type: datePromises[i].type })) : null));
-
+                
+                const responses = await Promise.all(monthPromises);
+                const csvTexts = await Promise.all(responses.map(res => res.ok ? res.text() : ''));
+                
                 // 3. Process data
                 const dailyData = {};
                 const facilityConsumptionData = [];
-                reports.filter(r => r?.type === 'demand').forEach(report => {
-                    if (!report?.gasDay || !report.rows) return;
-                    const date = report.gasDay;
-                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                    report.rows.forEach(item => {
-                        dailyData[date].totalDemand += item.quantity;
-                        facilityConsumptionData.push(item);
-                    });
-                });
-                
                 const storageFlows = {};
-                reports.filter(r => r?.type === 'flow').forEach(report => {
-                    if (!report?.gasDay || !report.rows) return;
-                    const date = report.gasDay;
-                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                    if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
-                    report.rows.forEach(row => {
-                        const info = facilityInfo[row.facilityName];
-                        if (info?.type === 'Production') {
-                            const supply = row.receipt || 0;
-                            dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + supply;
-                            dailyData[date].totalSupply += supply;
-                        } else if (info?.type === 'Storage') {
-                            storageFlows[date].netFlow += (row.receipt || 0) - (row.delivery || 0);
-                        }
-                    });
+
+                csvTexts.forEach(csv => {
+                    if (!csv) return;
+                    const parsed = parseCSV(csv);
+                    if (parsed.length === 0) return;
+
+                    // Check if it's a flow or demand report by headers
+                    if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
+                        parsed.forEach(row => {
+                            const date = row.gasDay;
+                            if (!date) return;
+                            if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                            if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
+                            
+                            const info = facilityInfo[row.facilityName];
+                            if (info?.type === 'Production') {
+                                const supply = parseFloat(row.receipt) || 0;
+                                dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + supply;
+                                dailyData[date].totalSupply += supply;
+                            } else if (info?.type === 'Storage') {
+                                storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
+                            }
+                        });
+                    } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
+                        parsed.forEach(item => {
+                            const date = item.gasDay;
+                            if (!date) return;
+                            if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                            const quantity = parseFloat(item.quantity) || 0;
+                            dailyData[date].totalDemand += quantity;
+                            facilityConsumptionData.push({ ...item, quantity });
+                        });
+                    }
                 });
                 
                 let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
@@ -379,5 +405,4 @@ export default function App() {
             </main>
             <footer className="text-center py-4"><p className="text-xs text-gray-500">Dashboard data sourced from AEMO GBB API. Last updated: {new Date().toLocaleString()}.</p></footer>
         </div>
-    );
-}
+    )
