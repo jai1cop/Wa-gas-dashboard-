@@ -302,7 +302,8 @@ export default function App() {
                             if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
                             
                             const info = facilityInfo[row.facilityName];
-                            if (info?.type === 'Production') {
+                            // CORRECTED LOGIC: Only count receipts from Production facilities where it's a main zonal flow (not a specific gate station)
+                            if (info?.type === 'Production' && row.zoneCode && !row.gateStationCode) {
                                 const supply = parseFloat(row.receipt) || 0;
                                 dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + supply;
                                 dailyData[date].totalSupply += supply;
