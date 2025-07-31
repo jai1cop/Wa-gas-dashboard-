@@ -1,0 +1,19 @@
+# Netlify configuration file
+
+# Rule 1: Proxies AEMO API requests
+# from: /api/*
+# to:   https://gbbwa.aemo.com.au/api/v1/*
+[[redirects]]
+  from = "/api/*"
+  to = "https://gbbwa.aemo.com.au/api/v1/:splat"
+  status = 200
+  force = true
+
+# Rule 2: Proxies BOM Weather API requests
+# from: /bom-api/*
+# to:   https://www.bom.gov.au/*
+[[redirects]]
+  from = "/bom-api/*"
+  to = "https://www.bom.gov.au/:splat"
+  status = 200
+  force = true
