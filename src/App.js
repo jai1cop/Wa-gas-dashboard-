@@ -47,9 +47,30 @@ const ErrorDisplay = ({ message }) => (
 
 // --- CHART COMPONENTS ---
 function SupplyDemandChart({ data, facilityInfo, scenario }) {
-    const [dateRange, setDateRange] = useState({ start: data[data.length - 90]?.timestamp, end: data[data.length - 1]?.timestamp });
-    const filteredData = useMemo(() => data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end), [data, dateRange]);
-    const resetZoom = () => setDateRange({ start: data[data.length - 90]?.timestamp, end: data[data.length - 1]?.timestamp });
+    const [dateRange, setDateRange] = useState({ start: null, end: null });
+
+    useEffect(() => {
+        if (data.length > 0) {
+            setDateRange({
+                start: data[data.length - 90]?.timestamp || data[0]?.timestamp,
+                end: data[data.length - 1]?.timestamp
+            });
+        }
+    }, [data]);
+
+    const filteredData = useMemo(() => {
+        if (!dateRange.start || !dateRange.end) return data;
+        return data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
+    }, [data, dateRange]);
+
+    const resetZoom = () => {
+        if (data.length > 0) {
+            setDateRange({
+                start: data[data.length - 90]?.timestamp || data[0]?.timestamp,
+                end: data[data.length - 1]?.timestamp
+            });
+        }
+    };
 
     return (
         <Card>
@@ -390,5 +411,4 @@ export default function App() {
             </main>
             <footer className="text-center py-4"><p className="text-xs text-gray-500">Dashboard data sourced from AEMO GBB API. Last updated: {new Date().toLocaleString()}.</p></footer>
         </div>
-    )
-}
+    
