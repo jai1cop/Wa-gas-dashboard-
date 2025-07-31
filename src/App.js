@@ -32,6 +32,20 @@ const DATA_TO_DISPLAY_NAME_MAP = Object.fromEntries(
     Object.entries(AEMO_FACILITY_NAME_MAP).map(([display, data]) => [data, display])
 );
 
+// Facility capacity data for validation (in TJ/day)
+const FACILITY_CAPACITIES = {
+    "North West Shelf": 1200,
+    "Gorgon Gas Plant": 1100,
+    "Wheatstone": 900,
+    "Macedon": 200,
+    "Varanus Island": 300,
+    "Devil Creek": 100,
+    "Pluto": 600,
+    "Xyris Production Facility": 50,
+    "Walyering Production Facility": 30,
+    "Beharra Springs": 40
+};
+
 
 // --- HELPER FUNCTIONS ---
 const parseCSV = (csvText) => {
@@ -62,6 +76,11 @@ const debugFacilityNames = (csvTexts) => {
     console.log('All facility names from API:', Array.from(facilityNames).sort());
     console.log('Production facilities we are looking for:', PRODUCTION_FACILITIES);
     console.log('Current name mappings:', AEMO_FACILITY_NAME_MAP);
+};
+
+// Get facility capacity for validation
+const getFacilityCapacity = (facilityName) => {
+    return FACILITY_CAPACITIES[facilityName] || null;
 };
 
 
@@ -505,25 +524,40 @@ export default function App() {
                     );
 
                     if (isProduction) {
-    const supply = parseFloat(row.receipt) || 0;
-    const facilityCapacity = getFacilityCapacity(displayName); // You'd need to implement this
-    
-    // Skip obviously invalid data
-    if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
-        console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
-        return;
-    }
-    
-    if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
-        dailyData[date][displayName] = supply;
+                        const supply = parseFloat(row.receipt) || 0;
+                        const facilityCapacity = getFacilityCapacity(displayName);
+                        
+                        // Skip obviously invalid data
+                        if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
+                            console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
+                            return;
+                        }
+                        
+                        // Take maximum value for each facility per day
+                        if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
+                            dailyData[date][displayName] = supply;
+                            
+                            // Debug logging for Gorgon and North West Shelf
+                            if (displayName.includes('Gorgon') || displayName.includes('North West Shelf')) {
+                                console.log(`${date}: ${displayName} (API: ${apiName}) = ${supply} (max)`);
+                            }
+                        }
+                    } else if (isStorage) {
+                        storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
+                    }
+                });
+            } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
+                parsed.forEach(item => {
+                    const date = item.gasDay;
+                    if (!date) return;
+                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+                    const quantity = parseFloat(item.quantity) || 0;
+                    dailyData[date].totalDemand += quantity;
+                    facilityConsumptionData.push({ ...item, quantity });
+                });
+            }
+        });
         
-        // Debug logging
-        if (displayName.includes('Gorgon') || displayName.includes('North West Shelf')) {
-            console.log(`${date}: ${displayName} (API: ${apiName}) = ${supply} (max)`);
-        }
-    }
-}
-       
         // Calculate total supply using display names consistently
         Object.values(dailyData).forEach(day => {
             day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => {
