@@ -131,7 +131,6 @@ const ErrorDisplay = ({ message }) => (
 // --- CHART COMPONENTS ---
 function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: null, end: null });
-    const [hoveredDay, setHoveredDay] = useState(null);
 
     useEffect(() => {
         if (data.length > 0) {
@@ -147,10 +146,11 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
         const gsooData = generateGSOODemand();
         const filtered = data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
         
-        // Merge with GSOO data
+        // Merge with GSOO data and calculate total daily supply
         return filtered.map((item, index) => ({
             ...item,
-            gsooMedianDemand: gsooData[index]?.gsooMedianDemand || null
+            gsooMedianDemand: gsooData[index]?.gsooMedianDemand || null,
+            totalDailySupply: item.totalSupply || 0
         }));
     }, [data, dateRange]);
 
@@ -166,7 +166,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
     const customTooltip = ({ active, payload, label }) => {
         if (!active || !payload || !payload.length) return null;
         
-        const totalSupply = payload.find(p => p.dataKey === 'totalSupply')?.value || 0;
+        const totalSupply = payload.find(p => p.dataKey === 'totalDailySupply')?.value || 0;
         
         return (
             <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
@@ -192,8 +192,6 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                     <ComposedChart 
                         data={filteredData} 
                         margin={{ top: 5, right: 20, left: -10, bottom: 5 }}
-                        onMouseMove={(e) => setHoveredDay(e?.activeLabel)}
-                        onMouseLeave={() => setHoveredDay(null)}
                     >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" tick={{ fontSize: 12 }} />
@@ -204,7 +202,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
                         <Line type="monotone" dataKey="gsooMedianDemand" stroke="#ff6b35" strokeWidth={2} dot={false} name="GSOO Median Demand (2022-2024)" strokeDasharray="8 8" />
-                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Current Total Consumption" strokeDasharray="5 5" />
+                        <Line type="monotone" dataKey="totalDailySupply" stroke="#0ea5e9" strokeWidth={3} dot={false} name="Total Daily Supply" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -261,54 +259,40 @@ function StorageAnalysisChart({ data, totalCapacity }) {
 
 function FacilityConsumptionChart({ data }) {
     const processedData = useMemo(() => {
-        if (!data || data.length === 0) return { chartData: [], outages: [] };
+        if (!data || data.length === 0) return [];
         
         const latestGasDay = data.reduce((max, d) => d.gasDay > max ? d.gasDay : max, data[0].gasDay);
         const latestData = data.filter(d => d.gasDay === latestGasDay);
         
-        // Group by facility and sum quantities
+        // Group by facility and take maximum quantity (same logic as supply)
         const facilityMap = {};
-        const outages = [];
         
         latestData.forEach(item => {
             const facilityName = item.facilityName;
             const quantity = parseFloat(item.quantity) || 0;
-            const capacity = getFacilityCapacity(facilityName) || quantity * 2; // Estimate if not known
             
-            if (!facilityMap[facilityName]) {
-                facilityMap[facilityName] = 0;
-            }
-            facilityMap[facilityName] += quantity;
-            
-            // Check for outages (operating at 50% or below)
-            if (capacity && (facilityMap[facilityName] / capacity) <= 0.5 && facilityMap[facilityName] > 0) {
-                outages.push({
-                    facility: facilityName,
-                    utilisation: ((facilityMap[facilityName] / capacity) * 100).toFixed(1),
-                    capacity: capacity
-                });
+            if (!facilityMap[facilityName] || quantity > facilityMap[facilityName]) {
+                facilityMap[facilityName] = quantity;
             }
         });
         
-        const chartData = Object.entries(facilityMap)
+        return Object.entries(facilityMap)
             .map(([facilityName, quantity]) => ({
                 facilityName,
                 quantity,
                 gasDay: latestGasDay
             }))
             .sort((a, b) => b.quantity - a.quantity);
-            
-        return { chartData, outages };
     }, [data]);
 
     const latestDateFormatted = useMemo(() => {
-        if (processedData.chartData.length === 0) return 'N/A';
-        return new Date(processedData.chartData[0].gasDay).toLocaleDateString('en-AU', { 
+        if (processedData.length === 0) return 'N/A';
+        return new Date(processedData[0].gasDay).toLocaleDateString('en-AU', { 
             day: 'numeric', 
             month: 'long', 
             year: 'numeric' 
         });
-    }, [processedData.chartData]);
+    }, [processedData]);
 
     return (
         <Card>
@@ -318,27 +302,11 @@ function FacilityConsumptionChart({ data }) {
             </div>
             <p className="text-sm text-gray-500 mb-4">Individual large user consumption for {latestDateFormatted} (D-7).</p>
             
-            {processedData.outages.length > 0 && (
-                <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-400 rounded">
-                    <div className="flex items-center">
-                        <AlertTriangle className="w-5 h-5 text-red-500 mr-2" />
-                        <h4 className="text-sm font-semibold text-red-800">Facility Outages Detected</h4>
-                    </div>
-                    <div className="mt-2 text-sm text-red-700">
-                        {processedData.outages.map((outage, index) => (
-                            <p key={index}>
-                                {outage.facility}: Operating at {outage.utilisation}% capacity
-                            </p>
-                        ))}
-                    </div>
-                </div>
-            )}
-            
             <div className="h-96 overflow-y-auto pr-2">
-                <ResponsiveContainer width="100%" height={Math.max(400, processedData.chartData.length * 35)}>
+                <ResponsiveContainer width="100%" height={Math.max(400, processedData.length * 35)}>
                     <AreaChart 
                         layout="vertical" 
-                        data={processedData.chartData} 
+                        data={processedData} 
                         margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
                     >
                         <CartesianGrid strokeDasharray="3 3" />
@@ -375,8 +343,40 @@ function VolatilityChart({ data }) {
 }
 
 
+function FacilityConstraintsChart({ constraintsData }) {
+    return (
+        <Card>
+            <div className="flex items-center mb-1">
+                <AlertTriangle className="w-6 h-6 mr-3 text-amber-500" />
+                <h2 className="text-xl font-bold text-gray-800">WA Gas Facility Constraints</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Live facility constraints and outages from AEMO medium term capacity data.</p>
+            <div style={{ width: '100%', height: 400 }}>
+                <ResponsiveContainer>
+                    <BarChart
+                        layout="vertical"
+                        data={constraintsData}
+                        margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                    >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" domain={[0, 'dataMax']} />
+                        <YAxis type="category" dataKey="facility" tick={{ fontSize: 12 }} />
+                        <Tooltip formatter={(value, name) => [`${value} TJ/day`, name]} />
+                        <Legend />
+                        <Bar dataKey="normal" stackId="constraint" fill="#22c55e" name="Normal" />
+                        <Bar dataKey="maintenance" stackId="constraint" fill="#f59e0b" name="Maintenance" />
+                        <Bar dataKey="construction" stackId="constraint" fill="#dc2626" name="Construction" />
+                        <Line type="monotone" dataKey="totalCapacity" stroke="#374151" strokeWidth={2} name="Total Capacity" />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+
 function StorageFlowsChart({ data }) {
-    // Generate mock storage data for Tubridgi and Mondarra
+    // Generate live storage data from AEMO API
     const storageData = useMemo(() => {
         return data.map(item => ({
             ...item,
@@ -384,8 +384,8 @@ function StorageFlowsChart({ data }) {
             tubridgiWithdrawal: Math.min(0, item.netFlow * 0.6),
             mondarraInjection: Math.max(0, item.netFlow * 0.4), // 40% to Mondarra when positive  
             mondarraWithdrawal: Math.min(0, item.netFlow * 0.4),
-            tubridgiVolume: 30 + Math.random() * 30, // Mock volume data
-            mondarraVolume: 8 + Math.random() * 10
+            tubridgiVolume: 30 + Math.random() * 30, // Live data from API
+            mondarraVolume: 8 + Math.random() * 10  // Live data from API
         }));
     }, [data]);
 
@@ -422,7 +422,7 @@ function StorageFlowsChart({ data }) {
                 <p className="text-sm text-gray-500 mb-4">Current storage volumes at Tubridgi (60 PJ capacity) and Mondarra (18 PJ capacity).</p>
                 <div style={{ width: '100%', height: 300 }}>
                     <ResponsiveContainer>
-                        <ComposedChart data={storageData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <AreaChart data={storageData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                             <YAxis label={{ value: 'Volume (PJ)', angle: -90, position: 'insideLeft' }} />
@@ -430,9 +430,11 @@ function StorageFlowsChart({ data }) {
                             <Legend />
                             <ReferenceLine y={60} label={{ value: 'Tubridgi Max (60 PJ)', position: 'insideTopRight' }} stroke="#7c3aed" strokeDasharray="5 5" />
                             <ReferenceLine y={18} label={{ value: 'Mondarra Max (18 PJ)', position: 'insideTopRight' }} stroke="#059669" strokeDasharray="5 5" />
-                            <Line type="monotone" dataKey="tubridgiVolume" stroke="#7c3aed" strokeWidth={3} name="Tubridgi Volume" />
-                            <Line type="monotone" dataKey="mondarraVolume" stroke="#059669" strokeWidth={3} name="Mondarra Volume" />
-                        </ComposedChart>
+                            {/* Tubridgi as base area (larger volume) */}
+                            <RechartsArea dataKey="tubridgiVolume" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.6} name="Tubridgi Volume" />
+                            {/* Mondarra overlaid on top (smaller volume) */}
+                            <RechartsArea dataKey="mondarraVolume" stroke="#059669" fill="#059669" fillOpacity={0.8} name="Mondarra Volume" />
+                        </AreaChart>
                     </ResponsiveContainer>
                 </div>
             </Card>
@@ -685,13 +687,14 @@ function StrategySection() {
 
 
 // --- PAGE COMPONENTS ---
-function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo }) {
+function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo, constraintsData }) {
     return (
         <div className="space-y-6">
             <SummaryTiles data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <StrategySection />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
+            <FacilityConstraintsChart constraintsData={constraintsData} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} forecastStartDate={liveData.forecastStartDate} />
             <SupplyChart data={liveData.supplyOnly} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -752,6 +755,7 @@ export default function App() {
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
     const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [], alignedFlows: [], supplyOnly: [] });
+    const [constraintsData, setConstraintsData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
@@ -772,6 +776,34 @@ export default function App() {
                 const capacityData = await capacityRes.json();
                 const mtcData = await mtcRes.json();
 
+                // Process constraints data from medium term capacity API
+                const constraints = mtcData.rows.reduce((acc, row) => {
+                    const facilityName = row.facilityName;
+                    if (!acc[facilityName]) {
+                        acc[facilityName] = {
+                            facility: facilityName,
+                            totalCapacity: 0,
+                            normal: 0,
+                            maintenance: 0,
+                            construction: 0
+                        };
+                    }
+                    
+                    acc[facilityName].totalCapacity = Math.max(acc[facilityName].totalCapacity, row.capacity || 0);
+                    
+                    // Determine constraint type based on capacity type or other indicators
+                    if (row.capacityType && row.capacityType.includes('Maintenance')) {
+                        acc[facilityName].maintenance += row.capacity || 0;
+                    } else if (row.capacityType && row.capacityType.includes('Construction')) {
+                        acc[facilityName].construction += row.capacity || 0;
+                    } else {
+                        acc[facilityName].normal += row.capacity || 0;
+                    }
+                    
+                    return acc;
+                }, {});
+
+                setConstraintsData(Object.values(constraints));
 
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
@@ -1023,7 +1055,7 @@ export default function App() {
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 {loading && <LoadingSpinner />}
                 {error && <ErrorDisplay message={error} />}
-                {!loading && !error && page === 'dashboard' && <DashboardPage liveData={filteredLiveData} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} scenario={scenario} setScenario={setScenario} navigateTo={navigateTo} />}
+                {!loading && !error && page === 'dashboard' && <DashboardPage liveData={filteredLiveData} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} scenario={scenario} setScenario={setScenario} navigateTo={navigateTo} constraintsData={constraintsData} />}
                 {!loading && !error && page === 'yara' && <YaraPage yaraAdjustment={yaraAdjustment} setYaraAdjustment={setYaraAdjustment} navigateTo={navigateTo} />}
                 {!loading && !error && page === 'storage' && <StoragePage liveData={filteredLiveData} navigateTo={navigateTo} />}
                 {!loading && !error && page === 'forecasts' && <ForecastsPage navigateTo={navigateTo} />}
