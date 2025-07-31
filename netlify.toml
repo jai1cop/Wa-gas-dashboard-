@@ -9,9 +9,9 @@
   force = true
 
 # This new rule proxies requests from /bom-api/ path
-# to the live BOM weather data server.
+# to the live BOM weather data server using a secure connection.
 [[redirects]]
   from = "/bom-api/*"
-  to = "http://www.bom.gov.au/:splat"
+  to = "https://www.bom.gov.au/:splat" # CORRECTED: Changed http to https
   status = 200
   force = true
