@@ -505,33 +505,25 @@ export default function App() {
                     );
 
                     if (isProduction) {
-                        const supply = parseFloat(row.receipt) || 0;
-                        // SUM multiple data points instead of taking max
-                        if (!dailyData[date][displayName]) {
-                            dailyData[date][displayName] = 0;
-                        }
-                        dailyData[date][displayName] += supply;
-                        
-                        // Debug logging for Gorgon and North West Shelf
-                        if (displayName.includes('Gorgon') || displayName.includes('North West Shelf')) {
-                            console.log(`${date}: ${displayName} (API: ${apiName}) += ${supply} = ${dailyData[date][displayName]}`);
-                        }
-                    } else if (isStorage) {
-                        storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
-                    }
-                });
-            } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
-                parsed.forEach(item => {
-                    const date = item.gasDay;
-                    if (!date) return;
-                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                    const quantity = parseFloat(item.quantity) || 0;
-                    dailyData[date].totalDemand += quantity;
-                    facilityConsumptionData.push({ ...item, quantity });
-                });
-            }
-        });
+    const supply = parseFloat(row.receipt) || 0;
+    const facilityCapacity = getFacilityCapacity(displayName); // You'd need to implement this
+    
+    // Skip obviously invalid data
+    if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
+        console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
+        return;
+    }
+    
+    if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
+        dailyData[date][displayName] = supply;
         
+        // Debug logging
+        if (displayName.includes('Gorgon') || displayName.includes('North West Shelf')) {
+            console.log(`${date}: ${displayName} (API: ${apiName}) = ${supply} (max)`);
+        }
+    }
+}
+       
         // Calculate total supply using display names consistently
         Object.values(dailyData).forEach(day => {
             day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => {
