@@ -66,7 +66,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario }) {
     }, [data]);
 
     const filteredData = useMemo(() => {
-        if (!dateRange.start || !dateRange.end) return data;
+        if (!dateRange.start || !dateRange.end || !data) return [];
         return data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
     }, [data, dateRange]);
 
@@ -325,20 +325,24 @@ export default function App() {
                 const mtcData = await mtcRes.json();
 
                 const facilityInfo = {};
+                const displayNames = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
+                
                 capacityData.rows.forEach(row => {
-                    const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
-                    if (!facilityInfo[facilityName]) {
+                    const displayName = row.facilityName;
+                    const dataName = AEMO_FACILITY_NAME_MAP[displayName] || displayName;
+                    if (!facilityInfo[displayName]) {
                         let type = 'Pipeline';
                         if (row.capacityType.includes('Production')) type = 'Production';
                         if (row.capacityType.includes('Storage')) type = 'Storage';
-                        facilityInfo[facilityName] = { type, color: colors[colorIndex++ % colors.length] };
+                        facilityInfo[displayName] = { type, color: colors[colorIndex++ % colors.length], dataName };
                     }
                 });
+                
                 const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
-                    const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
-                    if (facilityInfo[facilityName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
+                    const displayName = row.facilityName;
+                    if (facilityInfo[displayName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
                         return acc + row.capacity;
                     }
                     return acc;
@@ -372,16 +376,18 @@ export default function App() {
                         parsed.forEach(row => {
                             const date = row.gasDay;
                             if (!date) return;
-                            const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
+                            const dataName = row.facilityName;
                             if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                             if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
                             
-                            const info = facilityInfo[facilityName];
-                            if (info?.type === 'Production' && row.zoneCode && !row.gateStationCode) {
+                            const isProduction = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Production');
+                            const isStorage = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Storage');
+
+                            if (isProduction && row.zoneCode && !row.gateStationCode) {
                                 const supply = parseFloat(row.receipt) || 0;
-                                dailyData[date][facilityName] = (dailyData[date][facilityName] || 0) + supply;
+                                dailyData[date][dataName] = (dailyData[date][dataName] || 0) + supply;
                                 dailyData[date].totalSupply += supply;
-                            } else if (info?.type === 'Storage') {
+                            } else if (isStorage) {
                                 storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
                             }
                         });
@@ -440,7 +446,8 @@ export default function App() {
             const newDay = { ...day, totalSupply: 0, simulatedSupply: 0 };
             let scenarioImpact = 0;
             Object.keys(activeFacilities).forEach(facilityName => {
-                const baseSupply = day[AEMO_FACILITY_NAME_MAP[facilityName] || facilityName] || 0;
+                const dataName = AEMO_FACILITY_NAME_MAP[facilityName] || facilityName;
+                const baseSupply = day[dataName] || 0;
                 if (activeFacilities[facilityName]) newDay.totalSupply += baseSupply;
                 if (scenario.active && facilityName === scenario.facility) {
                     scenarioImpact = baseSupply * (scenario.outagePercent / 100);
