@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, BarChart, AreaChart, Area as RechartsArea } from 'recharts';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, BarChart, AreaChart, Area as RechartsArea, ReferenceArea } from 'recharts';
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
@@ -53,7 +53,7 @@ const ErrorDisplay = ({ message }) => (
 );
 
 // --- CHART COMPONENTS ---
-function SupplyDemandChart({ data, facilityInfo, scenario }) {
+function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: null, end: null });
 
     useEffect(() => {
@@ -82,7 +82,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario }) {
     return (
         <Card>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-                <div><h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2><p className="text-sm text-gray-500">Actual supply from Production Facilities vs. actual Large User Consumption (D-7).</p></div>
+                <div><h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2><p className="text-sm text-gray-500">Includes 7-day rolling average forecast for consumption (D-6 to D-2).</p></div>
                 <button onClick={resetZoom} className="mt-2 sm:mt-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Reset Zoom</button>
             </div>
             <div style={{ width: '100%', height: 500 }}>
@@ -93,9 +93,10 @@ function SupplyDemandChart({ data, facilityInfo, scenario }) {
                         <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
                         <Tooltip contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '0.5rem', border: '1px solid #ccc' }} formatter={(value, name) => [typeof value === 'number' ? value.toFixed(0) : value, name]} />
                         <Legend />
+                        <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} stroke="none" fill="#f0f9ff" />
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={AEMO_FACILITY_NAME_MAP[facility] || facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
-                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" />
+                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" strokeDasharray="5 5" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -187,7 +188,7 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
 
 function SummaryTiles({ data, storageData, volatility }) {
     if (!data || data.length === 0) return null;
-    const latestActualData = data[data.length - 1];
+    const latestActualData = data.filter(d => !d.isForecast).pop();
     const balance = latestActualData ? latestActualData.totalSupply - latestActualData.totalDemand : 0;
     const latestStorageFlow = storageData.length > 0 ? storageData[storageData.length - 1].netFlow : 0;
     const latestVolatility = volatility.length > 0 ? volatility[volatility.length - 1].volatility : 0;
@@ -276,11 +277,11 @@ function StrategySection() {
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo }) {
     return (
         <div className="space-y-6">
-            <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
+            <SummaryTiles data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <StrategySection />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
-            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} />
+            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} forecastStartDate={liveData.forecastStartDate} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <StorageAnalysisChart data={liveData.storageAnalysis} totalCapacity={liveData.totalStorageCapacity} />
                 <FacilityConsumptionChart data={liveData.facilityConsumption} />
@@ -305,19 +306,16 @@ export default function App() {
     const [yaraAdjustment, setYaraAdjustment] = useState(0);
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
-    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [] });
+    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [], alignedFlows: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
-    // This state will hold the raw, unprocessed data
     const [baseData, setBaseData] = useState(null);
 
-    // This effect fetches data only once
     useEffect(() => {
         const fetchAndProcessData = async () => {
             setLoading(true); setError(null);
             try {
-                // 1. Fetch static and semi-static data
                 const [capacityRes, mtcRes] = await Promise.all([
                     fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`),
                     fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`),
@@ -351,7 +349,6 @@ export default function App() {
                     return acc;
                 }, 0);
 
-                // 2. Fetch historical data in monthly batches
                 const today = new Date();
                 const monthPromises = [];
                 for (let i = 0; i < 24; i++) {
@@ -375,15 +372,13 @@ export default function App() {
             finally { setLoading(false); }
         };
         fetchAndProcessData();
-    }, []); // Empty dependency array means this runs only once
+    }, []);
 
-    // This effect processes the data whenever baseData or yaraAdjustment changes
     useEffect(() => {
         if (!baseData) return;
 
         const { csvTexts, facilityInfo, totalStorageCapacity } = baseData;
         
-        // 3. Process data
         const dailyData = {};
         const facilityConsumptionData = [];
         const storageFlows = {};
@@ -426,11 +421,35 @@ export default function App() {
         
         let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
         
-        const alignedFlows = processedFlows.filter(d => d.totalDemand > 0 && d.totalSupply > 0);
+        const lastActualConsumptionDate = facilityConsumptionData.reduce((max, d) => d.gasDay > max ? d.gasDay : max, '');
+        
+        const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA'));
+        
+        const last7DaysDemand = alignedFlows.slice(-7).map(d => d.totalDemand);
+        const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
+        
+        const forecastStartDate = new Date(lastActualConsumptionDate);
+        forecastStartDate.setDate(forecastStartDate.getDate() + 1);
 
-        const finalFlows = alignedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
+        const forecastDays = [];
+        for (let i = 1; i <= 5; i++) {
+            const date = new Date(forecastStartDate);
+            date.setDate(date.getDate() + i - 1);
+            const dateString = new Date(date).toLocaleDateString('en-CA');
+            const supplyData = processedFlows.find(d => d.date === dateString);
+            forecastDays.push({
+                ...supplyData,
+                date: dateString,
+                timestamp: date.getTime(),
+                totalDemand: forecastDemand,
+                isForecast: true
+            });
+        }
+        
+        const finalFlows = [...alignedFlows, ...forecastDays];
 
-        // 5. Calculate Storage and Volatility
+        const finalFlowsWithYara = finalFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
+
         const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
         let currentVolume = totalStorageCapacity * 0.5;
         const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
@@ -438,7 +457,7 @@ export default function App() {
             return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
         });
 
-        const balanceData = finalFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
+        const balanceData = alignedFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
         const volatility = [];
         for (let i = 29; i < balanceData.length; i++) {
             const slice = balanceData.slice(i - 29, i + 1).map(d => d.balance);
@@ -447,8 +466,16 @@ export default function App() {
             volatility.push({ date: balanceData[i].date, volatility: stdDev });
         }
 
-        // 6. Set all state
-        setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, volatility });
+        setLiveData({ 
+            processedFlows: finalFlowsWithYara, 
+            alignedFlows: alignedFlows,
+            facilityInfo, 
+            storageAnalysis, 
+            totalStorageCapacity, 
+            facilityConsumption: facilityConsumptionData, 
+            volatility,
+            forecastStartDate: new Date(forecastStartDate).toLocaleDateString('en-CA')
+        });
 
     }, [baseData, yaraAdjustment]);
 
