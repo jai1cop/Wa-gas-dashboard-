@@ -433,3 +433,4 @@ Add the following to the dashboard:
 - The section should have a button to expand/collapse the content
 - The section should have a different background color to distinguish it from other sections
 - The section should have a different icon to distinguish it from other sections
+}
