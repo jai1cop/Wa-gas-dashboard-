@@ -46,7 +46,7 @@ const ErrorDisplay = ({ message }) => (
 );
 
 // --- CHART COMPONENTS ---
-function SupplyDemandChart({ data, facilityInfo, forecastStartDate, scenario }) {
+function SupplyDemandChart({ data, facilityInfo, scenario }) {
     const [dateRange, setDateRange] = useState({ start: data[data.length - 90]?.timestamp, end: data[data.length - 1]?.timestamp });
     const filteredData = useMemo(() => data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end), [data, dateRange]);
     const resetZoom = () => setDateRange({ start: data[data.length - 90]?.timestamp, end: data[data.length - 1]?.timestamp });
@@ -54,7 +54,7 @@ function SupplyDemandChart({ data, facilityInfo, forecastStartDate, scenario }) 
     return (
         <Card>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-                <div><h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2><p className="text-sm text-gray-500">Supply from Production Facilities vs. Large User Consumption.</p></div>
+                <div><h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2><p className="text-sm text-gray-500">Actual supply from Production Facilities vs. actual Large User Consumption (D-7).</p></div>
                 <button onClick={resetZoom} className="mt-2 sm:mt-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Reset Zoom</button>
             </div>
             <div style={{ width: '100%', height: 500 }}>
@@ -65,10 +65,9 @@ function SupplyDemandChart({ data, facilityInfo, forecastStartDate, scenario }) 
                         <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
                         <Tooltip contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '0.5rem', border: '1px solid #ccc' }} formatter={(value, name) => [typeof value === 'number' ? value.toFixed(0) : value, name]} />
                         <Legend />
-                        <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} yAxisId="left" stroke="none" fill="#f0f9ff" />
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
-                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" strokeDasharray="5 5" />
+                        <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -160,7 +159,7 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
 
 function SummaryTiles({ data, storageData, volatility }) {
     if (!data || data.length === 0) return null;
-    const latestActualData = data.filter(d => !d.isForecast).pop();
+    const latestActualData = data[data.length - 1];
     const balance = latestActualData ? latestActualData.totalSupply - latestActualData.totalDemand : 0;
     const latestStorageFlow = storageData.length > 0 ? storageData[storageData.length - 1].netFlow : 0;
     const latestVolatility = volatility.length > 0 ? volatility[volatility.length - 1].volatility : 0;
@@ -214,7 +213,7 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenar
             <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
-            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} forecastStartDate={liveData.forecastStartDate} scenario={scenario} />
+            <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <StorageAnalysisChart data={liveData.storageAnalysis} totalCapacity={liveData.totalStorageCapacity} />
                 <FacilityConsumptionChart data={liveData.facilityConsumption} />
@@ -239,7 +238,7 @@ export default function App() {
     const [yaraAdjustment, setYaraAdjustment] = useState(0);
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
-    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], forecastStartDate: null, volatility: [] });
+    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -295,7 +294,6 @@ export default function App() {
                     const parsed = parseCSV(csv);
                     if (parsed.length === 0) return;
 
-                    // Check if it's a flow or demand report by headers
                     if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
                         parsed.forEach(row => {
                             const date = row.gasDay;
@@ -326,22 +324,8 @@ export default function App() {
                 
                 let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
                 
-                // 4. Forecast consumption for recent days
-                const lastActualIndex = processedFlows.map(d => d.totalDemand > 0).lastIndexOf(true);
-                let forecastStartDate = null;
-                if (lastActualIndex !== -1 && lastActualIndex < processedFlows.length - 1) {
-                    const last7DaysDemand = processedFlows.slice(Math.max(0, lastActualIndex - 6), lastActualIndex + 1).map(d => d.totalDemand);
-                    const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
-                    
-                    const firstForecastDateObj = new Date(processedFlows[lastActualIndex].timestamp);
-                    firstForecastDateObj.setDate(firstForecastDateObj.getDate() + 1);
-                    forecastStartDate = new Date(firstForecastDateObj).toLocaleDateString('en-CA');
-
-                    for (let i = lastActualIndex + 1; i < processedFlows.length; i++) {
-                        processedFlows[i].totalDemand = forecastDemand;
-                        processedFlows[i].isForecast = true;
-                    }
-                }
+                // 4. ALIGN DATA: Only include days where we have BOTH supply and demand
+                processedFlows = processedFlows.filter(d => d.totalDemand > 0 && d.totalSupply > 0);
 
                 const finalFlows = processedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
 
@@ -363,7 +347,7 @@ export default function App() {
                 }
 
                 // 6. Set all state
-                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, forecastStartDate, volatility });
+                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, volatility });
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
