@@ -12,6 +12,13 @@ const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
 const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
 const VOLATILITY_COLOR = '#8884d8';
 
+// CORRECTED: Map common names to the names used in the flow/consumption reports
+const AEMO_FACILITY_NAME_MAP = {
+    "Karratha Gas Plant": "North West Shelf",
+    // Add other mappings here if discovered
+};
+
+
 // --- HELPER FUNCTIONS ---
 const parseCSV = (csvText) => {
     const lines = csvText.trim().split('\n');
@@ -86,7 +93,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario }) {
                         <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
                         <Tooltip contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '0.5rem', border: '1px solid #ccc' }} formatter={(value, name) => [typeof value === 'number' ? value.toFixed(0) : value, name]} />
                         <Legend />
-                        {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
+                        {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={AEMO_FACILITY_NAME_MAP[facility] || facility} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
                         <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" />
                     </ComposedChart>
@@ -321,14 +328,21 @@ export default function App() {
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
                 capacityData.rows.forEach(row => {
-                    if (!facilityInfo[row.facilityName]) {
+                    const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
+                    if (!facilityInfo[facilityName]) {
                         let type = 'Pipeline';
                         if (row.capacityType.includes('Production')) type = 'Production';
                         if (row.capacityType.includes('Storage')) type = 'Storage';
-                        facilityInfo[row.facilityName] = { type, color: colors[colorIndex++ % colors.length] };
+                        facilityInfo[facilityName] = { type, color: colors[colorIndex++ % colors.length] };
                     }
                 });
-                const totalStorageCapacity = mtcData.rows.reduce((acc, row) => (facilityInfo[row.facilityName]?.type === 'Storage' && row.capacityType === 'Nameplate') ? acc + row.capacity : acc, 0);
+                const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
+                    const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
+                    if (facilityInfo[facilityName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
+                        return acc + row.capacity;
+                    }
+                    return acc;
+                }, 0);
 
                 // 2. Fetch historical data in monthly batches
                 const today = new Date();
@@ -358,14 +372,14 @@ export default function App() {
                         parsed.forEach(row => {
                             const date = row.gasDay;
                             if (!date) return;
+                            const facilityName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
                             if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                             if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
                             
-                            const info = facilityInfo[row.facilityName];
-                            // CORRECTED LOGIC: Only count receipts from Production facilities where it's a main zonal flow (not a specific gate station)
+                            const info = facilityInfo[facilityName];
                             if (info?.type === 'Production' && row.zoneCode && !row.gateStationCode) {
                                 const supply = parseFloat(row.receipt) || 0;
-                                dailyData[date][row.facilityName] = (dailyData[date][row.facilityName] || 0) + supply;
+                                dailyData[date][facilityName] = (dailyData[date][facilityName] || 0) + supply;
                                 dailyData[date].totalSupply += supply;
                             } else if (info?.type === 'Storage') {
                                 storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
@@ -385,7 +399,6 @@ export default function App() {
                 
                 let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
                 
-                // 4. ALIGN DATA: Only include days where we have BOTH supply and demand
                 processedFlows = processedFlows.filter(d => d.totalDemand > 0 && d.totalSupply > 0);
 
                 const finalFlows = processedFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
@@ -427,7 +440,7 @@ export default function App() {
             const newDay = { ...day, totalSupply: 0, simulatedSupply: 0 };
             let scenarioImpact = 0;
             Object.keys(activeFacilities).forEach(facilityName => {
-                const baseSupply = day[facilityName] || 0;
+                const baseSupply = day[AEMO_FACILITY_NAME_MAP[facilityName] || facilityName] || 0;
                 if (activeFacilities[facilityName]) newDay.totalSupply += baseSupply;
                 if (scenario.active && facilityName === scenario.facility) {
                     scenarioImpact = baseSupply * (scenario.outagePercent / 100);
