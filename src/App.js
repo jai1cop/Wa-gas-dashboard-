@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, BarChart, AreaChart, Area as RechartsArea, ReferenceArea } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb } from 'lucide-react';
+import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2 } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -49,7 +49,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="w-6 h-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -98,6 +98,26 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
                         <Line type="monotone" dataKey="totalDemand" stroke="#374151" strokeWidth={2} dot={false} name="Total Consumption" strokeDasharray="5 5" />
                     </ComposedChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+function SupplyChart({ data }) {
+    return (
+        <Card>
+            <div className="flex items-center mb-1"><BarChart2 className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-gray-800">Total Production by Day</h2></div>
+            <p className="text-sm text-gray-500 mb-4">Up-to-date supply data from all production facilities (D-2).</p>
+            <div style={{ width: '100%', height: 250 }}>
+                <ResponsiveContainer>
+                    <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} />
+                        <Tooltip formatter={(value) => `${value.toFixed(0)} TJ`} />
+                        <Bar dataKey="totalSupply" name="Total Production" fill="#0ea5e9" />
+                    </BarChart>
                 </ResponsiveContainer>
             </div>
         </Card>
@@ -188,7 +208,7 @@ function FacilityControls({ facilityInfo, activeFacilities, setActiveFacilities 
 
 function SummaryTiles({ data, storageData, volatility }) {
     if (!data || data.length === 0) return null;
-    const latestActualData = data.filter(d => !d.isForecast).pop();
+    const latestActualData = data[data.length - 1];
     const balance = latestActualData ? latestActualData.totalSupply - latestActualData.totalDemand : 0;
     const latestStorageFlow = storageData.length > 0 ? storageData[storageData.length - 1].netFlow : 0;
     const latestVolatility = volatility.length > 0 ? volatility[volatility.length - 1].volatility : 0;
@@ -282,6 +302,7 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenar
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} forecastStartDate={liveData.forecastStartDate} />
+            <SupplyChart data={liveData.supplyOnly} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <StorageAnalysisChart data={liveData.storageAnalysis} totalCapacity={liveData.totalStorageCapacity} />
                 <FacilityConsumptionChart data={liveData.facilityConsumption} />
@@ -306,7 +327,7 @@ export default function App() {
     const [yaraAdjustment, setYaraAdjustment] = useState(0);
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
-    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [], alignedFlows: [] });
+    const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [], alignedFlows: [], supplyOnly: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
@@ -423,7 +444,7 @@ export default function App() {
         
         const lastActualConsumptionDate = facilityConsumptionData.reduce((max, d) => d.gasDay > max ? d.gasDay : max, '');
         
-        const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA'));
+        const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA') && d.totalDemand > 0 && d.totalSupply > 0);
         
         const last7DaysDemand = alignedFlows.slice(-7).map(d => d.totalDemand);
         const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
@@ -431,16 +452,16 @@ export default function App() {
         const forecastStartDate = new Date(lastActualConsumptionDate);
         forecastStartDate.setDate(forecastStartDate.getDate() + 1);
 
+        const supplyOnlyData = processedFlows.filter(d => d.totalSupply > 0);
+
         const forecastDays = [];
         for (let i = 1; i <= 5; i++) {
             const date = new Date(forecastStartDate);
             date.setDate(date.getDate() + i - 1);
             const dateString = new Date(date).toLocaleDateString('en-CA');
-            const supplyData = processedFlows.find(d => d.date === dateString);
+            const supplyData = supplyOnlyData.find(d => d.date === dateString);
             forecastDays.push({
-                ...supplyData,
-                date: dateString,
-                timestamp: date.getTime(),
+                ...(supplyData || { date: dateString, timestamp: date.getTime(), totalSupply: 0 }),
                 totalDemand: forecastDemand,
                 isForecast: true
             });
@@ -469,6 +490,7 @@ export default function App() {
         setLiveData({ 
             processedFlows: finalFlowsWithYara, 
             alignedFlows: alignedFlows,
+            supplyOnly: supplyOnlyData,
             facilityInfo, 
             storageAnalysis, 
             totalStorageCapacity, 
