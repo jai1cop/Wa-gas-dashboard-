@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, ReferenceArea, BarChart, AreaChart, Area as RechartsArea } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap } from 'lucide-react';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart, Cell, ReferenceLine, BarChart, AreaChart, Area as RechartsArea } from 'recharts';
+import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb } from 'lucide-react';
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -227,11 +227,50 @@ function ScenarioPlanner({ facilities, scenario, setScenario, onApply }) {
     );
 }
 
+function StrategySection() {
+    const [isOpen, setIsOpen] = useState(false);
+    return (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl shadow-sm">
+            <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between p-4 text-lg font-semibold text-gray-700">
+                <div className="flex items-center">
+                    <Lightbulb className="w-6 h-6 mr-3 text-indigo-600" />
+                    <span>Analysis & Enhancement Strategy</span>
+                </div>
+                {isOpen ? <ChevronUp /> : <ChevronDown />}
+            </button>
+            {isOpen && (
+                <div className="p-6 pt-0 text-sm text-gray-600">
+                    <p className="mb-4">This dashboard is a fantastic foundation. The following suggestions are designed to build upon this work to create a tool that provides actionable, alpha-generating insights for a commodity trader.</p>
+                    <h3 className="font-bold text-gray-800 mb-2">Tier 1: Core Trading Essentials</h3>
+                    <ol className="list-decimal list-inside space-y-4 mb-4">
+                        <li>
+                            <strong className="font-semibold text-gray-700">Integrate Volume Data & Spreads:</strong> Supply and demand fundamentals are only useful in how they influence price. Add a forward curve, calendar spreads, and spot price to quantify the market.
+                        </li>
+                        <li>
+                            <strong className="font-semibold text-gray-700">Volume Volatility Analysis:</strong> In the absence of reliable price data, analyzing the volatility of physical volumes is the best way to measure market stability and anticipate risk. Calculate and visualize the rolling 30-day volatility of the supply/demand balance as a proxy for price volatility.
+                        </li>
+                    </ol>
+                    <h3 className="font-bold text-gray-800 mb-2">Tier 2: Advanced Fundamental & Spread Analysis</h3>
+                    <ol className="list-decimal list-inside space-y-4">
+                        <li>
+                            <strong className="font-semibold text-gray-700">Interactive Scenario / Outage Analysis:</strong> Allow the user to stress-test the system by simulating facility outages to provide an immediate, quantifiable impact of a potential disruption.
+                        </li>
+                        <li>
+                            <strong className="font-semibold text-gray-700">Weather Integration:</strong> Integrate a live weather forecast feed from Australia's Bureau of Meteorology, focusing on Perth's 7-day temperature forecast and Heating/Cooling Degree Days (HDD/CDD).
+                        </li>
+                    </ol>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // --- PAGE COMPONENTS ---
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo }) {
     return (
         <div className="space-y-6">
             <SummaryTiles data={liveData.processedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
+            <StrategySection />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} />
@@ -412,25 +451,4 @@ export default function App() {
             <footer className="text-center py-4"><p className="text-xs text-gray-500">Dashboard data sourced from AEMO GBB API. Last updated: {new Date().toLocaleString()}.</p></footer>
         </div>
     );
-}
-```" in the immersive "App.js (Final Version with Trader Features)" and am asking a question about the selected code below.```
-Instructions to follow:
-  * Don't output/edit the document if the query is Direct/Simple. For example, if the query asks for a simple explanation, output a direct answer.
-  * Make sure to **edit** the document if the query shows the intent of editing the document, in which case output the entire edited document, **not just that section or the edits**.
-    * Don't output the same document/empty document and say that you have edited it.
-    * Don't change unrelated code in the document.
-  * Don't output  and  in your final response.
-  * Any references like "this" or "selected code" refers to the code between  and  tags.
-  * Just acknowledge my request in the introduction.
-  * Make sure to refer to the document as "Canvas" in your response.
-
-Add the following to the dashboard:
-- A new section called "Analysis & Enhancement Strategy: WA Gas Dashboard"
-- The content for this section should be the same as the user's previous message
-- The section should be collapsible
-- The section should be placed above the "Outage Scenario Planner"
-- The section should have a title and a description
-- The section should have a button to expand/collapse the content
-- The section should have a different background color to distinguish it from other sections
-- The section should have a different icon to distinguish it from other sections
 }
