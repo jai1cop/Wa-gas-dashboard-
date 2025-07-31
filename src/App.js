@@ -27,7 +27,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1">This may be a data processing error or an API issue. Please try again later.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p>{message.includes('Failed to fetch') && <p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p>}</div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -235,9 +235,9 @@ export default function App() {
             try {
                 // 1. Fetch static and semi-static data
                 const [capacityRes, mtcRes, weatherRes] = await Promise.all([
-                    fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`),
-                    fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`),
-                    fetch(`${BOM_API_BASE_URL}/fwo/IDW60901/IDW60901.94614.json`)
+                    fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`).catch(e => { throw new Error(`AEMO Capacity Outlook fetch failed: ${e.message}`) }),
+                    fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`).catch(e => { throw new Error(`AEMO MTC fetch failed: ${e.message}`) }),
+                    fetch(`${BOM_API_BASE_URL}/fwo/IDW60901/IDW60901.94614.json`).catch(e => { throw new Error(`BOM Weather fetch failed: ${e.message}`) })
                 ]);
                 if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText}`);
                 if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
@@ -277,16 +277,17 @@ export default function App() {
                 const dailyData = {};
                 
                 // Corrected Demand Processing
+                const facilityConsumptionData = [];
                 reports.filter(r => r?.type === 'demand').forEach(report => {
                     if (!report?.gasDay || !report.rows) return;
                     const date = report.gasDay;
                     if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     report.rows.forEach(item => {
                         dailyData[date].totalDemand += item.quantity;
+                        facilityConsumptionData.push(item); // Keep the gasDay property on each item
                     });
                 });
-                const facilityConsumption = reports.filter(r => r?.type === 'demand').flatMap(r => r.rows);
-
+                
                 const storageFlows = {};
                 reports.filter(r => r?.type === 'flow').forEach(report => {
                     if (!report?.gasDay || !report.rows) return;
@@ -344,7 +345,7 @@ export default function App() {
                 }
 
                 // 6. Set all state
-                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption, forecastStartDate, volatility, weather });
+                setLiveData({ processedFlows: finalFlows, facilityInfo, storageAnalysis, totalStorageCapacity, facilityConsumption: facilityConsumptionData, forecastStartDate, volatility, weather });
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
