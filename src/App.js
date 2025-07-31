@@ -4,35 +4,36 @@ import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Use
 
 // --- API & CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
-
-// Helper to get a date string in YYYY-MM-DD format
-const getISODateString = (date) => date.toISOString().split('T')[0];
 const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
-
 const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
 const VOLATILITY_COLOR = '#8884d8';
 
-// Map common names to the names used in the flow/consumption reports
+// --- DATA CONFIGURATION ---
+// Explicitly define the primary production facilities based on real-world data.
+const PRODUCTION_FACILITIES = [
+    "North West Shelf", "Gorgon Gas Plant", "Wheatstone", "Macedon", 
+    "Varanus Island", "Devil Creek", "Pluto", "Xyris Production Facility", 
+    "Walyering Production Facility", "Beharra Springs"
+];
+
+// Map display names to data names if they differ
 const AEMO_FACILITY_NAME_MAP = {
     "Karratha Gas Plant": "North West Shelf",
-    // Add other mappings here if discovered
 };
-
 
 // --- HELPER FUNCTIONS ---
 const parseCSV = (csvText) => {
     const lines = csvText.trim().split('\n');
     if (lines.length < 2) return [];
-    const header = lines[0].split(',').map(h => h.trim());
+    const header = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
     return lines.slice(1).map(line => {
         const values = line.split(',');
         return header.reduce((obj, nextKey, index) => {
-            obj[nextKey] = values[index] ? values[index].trim() : '';
+            obj[nextKey] = values[index] ? values[index].trim().replace(/"/g, '') : '';
             return obj;
         }, {});
     });
 };
-
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
@@ -49,7 +50,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="w-6 h-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
 // --- CHART COMPONENTS ---
@@ -417,13 +418,14 @@ export default function App() {
                     if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
                     
-                    const isProduction = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Production');
+                    const isProduction = PRODUCTION_FACILITIES.includes(dataName);
                     const isStorage = Object.values(facilityInfo).some(f => f.dataName === dataName && f.type === 'Storage');
 
-                    if (isProduction && row.zoneCode && !row.gateStationCode) {
+                    if (isProduction) {
                         const supply = parseFloat(row.receipt) || 0;
-                        dailyData[date][dataName] = (dailyData[date][dataName] || 0) + supply;
-                        dailyData[date].totalSupply += supply;
+                        if (!dailyData[date][dataName] || supply > dailyData[date][dataName]) {
+                           dailyData[date][dataName] = supply;
+                        }
                     } else if (isStorage) {
                         storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
                     }
@@ -440,14 +442,18 @@ export default function App() {
             }
         });
         
+        Object.values(dailyData).forEach(day => {
+            day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => sum + (day[facility] || 0), 0);
+        });
+
         let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
         
         const lastActualConsumptionDate = facilityConsumptionData.reduce((max, d) => d.gasDay > max ? d.gasDay : max, '');
         
-        const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA') && d.totalDemand > 0 && d.totalSupply > 0);
+        const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA'));
         
         const last7DaysDemand = alignedFlows.slice(-7).map(d => d.totalDemand);
-        const forecastDemand = last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length;
+        const forecastDemand = last7DaysDemand.length > 0 ? last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length : 0;
         
         const forecastStartDate = new Date(lastActualConsumptionDate);
         forecastStartDate.setDate(forecastStartDate.getDate() + 1);
@@ -455,9 +461,15 @@ export default function App() {
         const supplyOnlyData = processedFlows.filter(d => d.totalSupply > 0);
 
         const forecastDays = [];
-        for (let i = 1; i <= 5; i++) {
+        const today = new Date();
+        const d2 = new Date();
+        d2.setDate(today.getDate() - 2);
+
+        for (let i = 0; i < 5; i++) {
             const date = new Date(forecastStartDate);
-            date.setDate(date.getDate() + i - 1);
+            date.setDate(date.getDate() + i);
+            if (date > d2) break;
+
             const dateString = new Date(date).toLocaleDateString('en-CA');
             const supplyData = supplyOnlyData.find(d => d.date === dateString);
             forecastDays.push({
