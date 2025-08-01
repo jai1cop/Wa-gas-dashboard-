@@ -101,7 +101,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
         if (!dateRange.start || !dateRange.end || !data) return [];
         const gsooData = generateGSOODemand();
         const filtered = data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
-        return filtered.map((item, index) => ({
+        return filtered.map((item) => ({
             ...item,
             gsooMedianDemand: gsooData.find(g => g.date === item.date)?.gsooMedianDemand || null,
             totalDailySupply: item.totalSupply || 0
