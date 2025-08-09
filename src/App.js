@@ -37,8 +37,6 @@ const FACILITY_CAPACITIES = {
     "Xyris Production Facility": 30, "Walyering Production Facility": 33, "Beharra Springs": 25
 };
 
-const GSOO_HISTORICAL_DEMAND = { 2022: 1045, 2023: 1078, 2024: 1119 };
-
 // --- HELPER FUNCTIONS ---
 const parseCSV = (csvText) => {
     const lines = csvText.trim().split('\n');
@@ -67,7 +65,7 @@ const ErrorDisplay = ({ message }) => (
     <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
 );
 
-// --- NEWLY DEFINED UI COMPONENTS ---
+// --- UI COMPONENTS ---
 const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
     const handleFacilityChange = (e) => setScenario(s => ({ ...s, facility: e.target.value }));
     const handleOutageChange = (e) => setScenario(s => ({ ...s, outagePercent: Number(e.target.value) }));
@@ -97,8 +95,6 @@ const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
         </Card>
     );
 };
-
-// --- CHART COMPONENTS ---
 
 function StorageAnalysisChart({ data, totalCapacity }) {
     return (
@@ -405,36 +401,56 @@ export default function App() {
                     return acc;
                 }, 0);
 
-                // New logic to process outages by date
-                const totalProductionCapacity = Object.keys(FACILITY_CAPACITIES).reduce((sum, key) => sum + FACILITY_CAPACITIES[key], 0);
-                const outagesByDay = {};
-
+                // New, more detailed logic for stacked bar chart
+                const outagesByFacilityAndDate = {};
                 mtcData.rows.forEach(row => {
-                    if (PRODUCTION_FACILITIES.includes(AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName)) {
-                        const date = row.gasDay;
-                        if (!outagesByDay[date]) {
-                            outagesByDay[date] = { maintenance: 0, construction: 0 };
-                        }
-                        if (row.capacityType?.includes('Maintenance')) {
-                            outagesByDay[date].maintenance += row.capacity || 0;
-                        } else if (row.capacityType?.includes('Construction')) {
-                            outagesByDay[date].construction += row.capacity || 0;
-                        }
+                    const displayName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
+                    if (PRODUCTION_FACILITIES.includes(displayName)) {
+                        const key = `${displayName}:${row.gasDay}`;
+                        outagesByFacilityAndDate[key] = {
+                            outage: row.capacity || 0,
+                            type: row.capacityType,
+                        };
                     }
                 });
 
-                const forecastData = Object.entries(outagesByDay).map(([date, outages]) => {
-                    const available = totalProductionCapacity - outages.maintenance - outages.construction;
-                    return {
-                        date,
-                        totalCapacity: totalProductionCapacity,
-                        maintenance: outages.maintenance,
-                        construction: outages.construction,
-                        availableCapacity: available < 0 ? 0 : available,
-                    };
-                }).sort((a,b) => new Date(a.date) - new Date(b.date));
+                const chartData = [];
+                const startDate = new Date();
+                for (let i = 0; i < 90; i++) {
+                    const date = new Date(startDate);
+                    date.setDate(date.getDate() + i);
+                    const dateString = date.toISOString().split('T')[0];
 
-                setOutageForecastData(forecastData);
+                    const dayData = { date: dateString };
+                    let totalAvailable = 0;
+
+                    PRODUCTION_FACILITIES.forEach(facilityName => {
+                        const fullCapacity = FACILITY_CAPACITIES[facilityName] || 0;
+                        const outageKey = `${facilityName}:${dateString}`;
+                        const outageInfo = outagesByFacilityAndDate[outageKey];
+
+                        let availableCapacity = fullCapacity;
+                        let status = 'Normal';
+
+                        if (outageInfo) {
+                            availableCapacity -= outageInfo.outage;
+                            if (outageInfo.type?.includes('Maintenance')) {
+                                status = 'Maintenance';
+                            } else if (outageInfo.type?.includes('Construction')) {
+                                status = 'Construction';
+                            }
+                        }
+
+                        dayData[facilityName] = availableCapacity < 0 ? 0 : availableCapacity;
+                        dayData[`${facilityName}_status`] = status;
+                        totalAvailable += dayData[facilityName];
+                    });
+
+                    dayData.totalAvailable = totalAvailable;
+                    chartData.push(dayData);
+                }
+
+                setOutageForecastData(chartData);
 
                 const today = new Date();
                 const monthPromises = [];
