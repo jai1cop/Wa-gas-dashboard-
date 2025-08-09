@@ -564,7 +564,12 @@ export default function App() {
         
         const finalFlows = [...alignedFlows, ...forecastDays];
 
-        const finalFlowsWithYara = finalFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
+        const finalFlowsWithYara = finalFlows.map(d => ({
+            ...d,
+            totalDemand: d.totalDemand + yaraAdjustment,
+            actualDemand: d.isForecast ? null : d.totalDemand + yaraAdjustment,
+            forecastDemand: d.isForecast ? d.totalDemand + yaraAdjustment : null,
+        }));
 
         const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
         let currentVolume = totalStorageCapacity * 0.5;
