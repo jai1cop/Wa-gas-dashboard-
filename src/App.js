@@ -427,7 +427,7 @@ export default function App() {
                 
                 capacityData.rows.forEach(row => {
                     const apiName = row.facilityName;
-                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
+                    const displayName = AEMO_FACILITY_NAME_MAP[apiName] || apiName;
                     if (!facilityInfo[displayName]) {
                         let type = 'Pipeline';
                         if (row.capacityType.includes('Production')) type = 'Production';
@@ -438,7 +438,7 @@ export default function App() {
                 
                 const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
                     const apiName = row.facilityName;
-                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
+                    const displayName = AEMO_FACILITY_NAME_MAP[apiName] || apiName;
                     if (facilityInfo[displayName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
                         return acc + row.capacity;
                     }
