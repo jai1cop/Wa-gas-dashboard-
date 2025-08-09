@@ -19,6 +19,22 @@ const generateGSOODemand = () => {
     return data;
 };
 
+const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    const totalSupply = payload.find(p => p.dataKey === 'totalDailySupply')?.value || 0;
+    return (
+        <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
+            <p className="font-semibold">{label}</p>
+            <p className="text-blue-600">Total Daily Supply: {totalSupply.toFixed(0)} TJ/day</p>
+            {payload.map((entry, index) => (
+                <p key={index} style={{ color: entry.color }}>
+                    {entry.name}: {entry.value?.toFixed(0)} TJ/day
+                </p>
+            ))}
+        </div>
+    );
+};
+
 function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: null, end: null });
 
@@ -50,22 +66,6 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
             });
         }
     };
-    
-    const customTooltip = ({ active, payload, label }) => {
-        if (!active || !payload || !payload.length) return null;
-        const totalSupply = payload.find(p => p.dataKey === 'totalDailySupply')?.value || 0;
-        return (
-            <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-                <p className="font-semibold">{label}</p>
-                <p className="text-blue-600">Total Daily Supply: {totalSupply.toFixed(0)} TJ/day</p>
-                {payload.map((entry, index) => (
-                    <p key={index} style={{ color: entry.color }}>
-                        {entry.name}: {entry.value?.toFixed(0)} TJ/day
-                    </p>
-                ))}
-            </div>
-        );
-    };
 
     return (
         <Card>
@@ -79,7 +79,7 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                         <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
-                        <Tooltip content={customTooltip} />
+                        <Tooltip content={<CustomTooltip />} />
                         <Legend />
                         <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} stroke="none" fill="#f0f9ff" />
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facilityInfo[facility].dataName} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
