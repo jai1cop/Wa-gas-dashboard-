@@ -1,6 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area as RechartsArea, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine, ComposedChart, ReferenceArea } from 'recharts';
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2, Activity, FlaskConical } from 'lucide-react';
+import KeyMetrics from './components/KeyMetrics';
+import StrategySection from './components/StrategySection';
+import FacilityControls from './components/FacilityControls';
+import SupplyDemandChart from './components/SupplyDemandChart';
+import SupplyChart from './components/SupplyChart';
 
 // --- CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -50,22 +55,6 @@ const parseCSV = (csvText) => {
 
 const getFacilityCapacity = (facilityName) => FACILITY_CAPACITIES[facilityName] || null;
 
-const generateGSOODemand = () => {
-    const medianDemand = Object.values(GSOO_HISTORICAL_DEMAND).reduce((sum, val) => sum + val, 0) / Object.values(GSOO_HISTORICAL_DEMAND).length;
-    const data = [];
-    const today = new Date();
-    for (let i = 90; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-            date: date.toLocaleDateString('en-CA'),
-            timestamp: date.getTime(),
-            gsooMedianDemand: medianDemand + (Math.random() - 0.5) * 100
-        });
-    }
-    return data;
-};
-
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
 const PageTitle = ({ children, backAction }) => (
@@ -85,33 +74,6 @@ const ErrorDisplay = ({ message }) => (
 );
 
 // --- NEWLY DEFINED UI COMPONENTS ---
-const SummaryTiles = ({ data, storageData, volatility }) => {
-    const latestData = data[data.length - 1] || {};
-    const latestStorage = storageData[storageData.length - 1] || {};
-    const latestVolatility = volatility[volatility.length - 1] || {};
-
-    return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card><div className="flex items-center"><Zap className="w-8 h-8 text-green-500 mr-4" /><div><p className="text-sm text-gray-500">Total Supply</p><p className="text-2xl font-bold">{latestData.totalSupply?.toFixed(0) || 'N/A'} TJ/day</p></div></div></Card>
-            <Card><div className="flex items-center"><TrendingUp className="w-8 h-8 text-blue-500 mr-4" /><div><p className="text-sm text-gray-500">Total Consumption</p><p className="text-2xl font-bold">{latestData.totalDemand?.toFixed(0) || 'N/A'} TJ/day</p></div></div></Card>
-            <Card><div className="flex items-center"><Database className="w-8 h-8 text-purple-500 mr-4" /><div><p className="text-sm text-gray-500">Storage Level</p><p className="text-2xl font-bold">{latestStorage.totalVolume?.toFixed(0) || 'N/A'} TJ</p></div></div></Card>
-            <Card><div className="flex items-center"><Activity className="w-8 h-8 text-red-500 mr-4" /><div><p className="text-sm text-gray-500">30D Volatility</p><p className="text-2xl font-bold">{latestVolatility.volatility?.toFixed(1) || 'N/A'} TJ</p></div></div></Card>
-        </div>
-    );
-};
-
-const StrategySection = () => (
-    <Card>
-        <div className="flex items-center mb-2">
-            <Lightbulb className="w-6 h-6 mr-3 text-yellow-400" />
-            <h2 className="text-xl font-bold text-gray-800">Market Insights & Strategy</h2>
-        </div>
-        <p className="text-sm text-gray-600">
-            The WA gas market is currently in a near-term surplus, but forecasts indicate a potential supply gap in 2028, followed by a growing deficit from 2030. This suggests opportunities for flexible supply sources and storage solutions to manage increasing demand variability, especially with the rise of gas-powered generation to support renewables.
-        </p>
-    </Card>
-);
-
 const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
     const handleFacilityChange = (e) => setScenario(s => ({ ...s, facility: e.target.value }));
     const handleOutageChange = (e) => setScenario(s => ({ ...s, outagePercent: Number(e.target.value) }));
@@ -143,135 +105,7 @@ const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
     );
 };
 
-const FacilityControls = ({ facilityInfo, activeFacilities, setActiveFacilities }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const productionFacilities = Object.keys(facilityInfo).filter(name => facilityInfo[name].type === 'Production');
-
-    if (productionFacilities.length === 0) return null;
-
-    return (
-        <Card>
-            <button onClick={() => setIsOpen(!isOpen)} className="w-full flex justify-between items-center text-left">
-                <div className="flex items-center">
-                    <Settings className="w-6 h-6 mr-3 text-gray-700" />
-                    <h2 className="text-xl font-bold text-gray-800">Facility Supply Controls</h2>
-                </div>
-                {isOpen ? <ChevronUp /> : <ChevronDown />}
-            </button>
-            {isOpen && (
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {productionFacilities.map(name => (
-                        <div key={name} className="flex items-center">
-                            <input
-                                type="checkbox"
-                                id={`facility-${name}`}
-                                checked={!!activeFacilities[name]}
-                                onChange={() => setActiveFacilities(prev => ({ ...prev, [name]: !prev[name] }))}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <label htmlFor={`facility-${name}`} className="ml-2 block text-sm text-gray-900">{name}</label>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </Card>
-    );
-};
-
 // --- CHART COMPONENTS ---
-function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
-    const [dateRange, setDateRange] = useState({ start: null, end: null });
-
-    useEffect(() => {
-        if (data.length > 0) {
-            setDateRange({
-                start: data[data.length - 90]?.timestamp || data[0]?.timestamp,
-                end: data[data.length - 1]?.timestamp
-            });
-        }
-    }, [data]);
-
-    const filteredData = useMemo(() => {
-        if (!dateRange.start || !dateRange.end || !data) return [];
-        const gsooData = generateGSOODemand();
-        const filtered = data.filter(d => d.timestamp >= dateRange.start && d.timestamp <= dateRange.end);
-        return filtered.map((item) => ({
-            ...item,
-            gsooMedianDemand: gsooData.find(g => g.date === item.date)?.gsooMedianDemand || null,
-            totalDailySupply: item.totalSupply || 0
-        }));
-    }, [data, dateRange]);
-
-    const resetZoom = () => {
-        if (data.length > 0) {
-            setDateRange({
-                start: data[data.length - 90]?.timestamp || data[0]?.timestamp,
-                end: data[data.length - 1]?.timestamp
-            });
-        }
-    };
-    
-    const customTooltip = ({ active, payload, label }) => {
-        if (!active || !payload || !payload.length) return null;
-        const totalSupply = payload.find(p => p.dataKey === 'totalDailySupply')?.value || 0;
-        return (
-            <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-                <p className="font-semibold">{label}</p>
-                <p className="text-blue-600">Total Daily Supply: {totalSupply.toFixed(0)} TJ/day</p>
-                {payload.map((entry, index) => (
-                    <p key={index} style={{ color: entry.color }}>
-                        {entry.name}: {entry.value?.toFixed(0)} TJ/day
-                    </p>
-                ))}
-            </div>
-        );
-    };
-
-    return (
-        <Card>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-                <div><h2 className="text-xl font-bold text-gray-800">WA Gas Production vs. Consumption</h2><p className="text-sm text-gray-500">Includes GSOO median demand from previous 3 years (2022-2024).</p></div>
-                <button onClick={resetZoom} className="mt-2 sm:mt-0 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Reset Zoom</button>
-            </div>
-            <div style={{ width: '100%', height: 500 }}>
-                <ResponsiveContainer>
-                    <ComposedChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                        <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
-                        <Tooltip content={customTooltip} />
-                        <Legend />
-                        <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} stroke="none" fill="#f0f9ff" />
-                        {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facilityInfo[facility].dataName} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
-                        {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
-                        <Line type="monotone" dataKey="gsooMedianDemand" stroke="#ff6b35" strokeWidth={2} dot={false} name="GSOO Median Demand (2022-2024)" strokeDasharray="8 8" />
-                        <Line type="monotone" dataKey="totalDailySupply" stroke="#0ea5e9" strokeWidth={3} dot={false} name="Total Daily Supply" />
-                    </ComposedChart>
-                </ResponsiveContainer>
-            </div>
-        </Card>
-    );
-}
-
-function SupplyChart({ data }) {
-    return (
-        <Card>
-            <div className="flex items-center mb-1"><BarChart2 className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-gray-800">Total Production by Day</h2></div>
-            <p className="text-sm text-gray-500 mb-4">Up-to-date supply data from all production facilities (D-2).</p>
-            <div style={{ width: '100%', height: 250 }}>
-                <ResponsiveContainer>
-                    <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} />
-                        <Tooltip formatter={(value) => `${value.toFixed(0)} TJ`} />
-                        <Bar dataKey="totalSupply" name="Total Production" fill="#0ea5e9" />
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-        </Card>
-    );
-}
 
 function StorageAnalysisChart({ data, totalCapacity }) {
     return (
@@ -490,7 +324,7 @@ function GSSOForecastCharts() {
 function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo, constraintsData }) {
     return (
         <div className="space-y-6">
-            <SummaryTiles data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
+            <KeyMetrics data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <StrategySection />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
