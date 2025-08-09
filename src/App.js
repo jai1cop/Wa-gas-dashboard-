@@ -10,6 +10,7 @@ import AlertsManager from './components/AlertsManager';
 import AlertNotification from './components/AlertNotification';
 import ComparisonPage from './pages/ComparisonPage';
 import PageTitle from './components/PageTitle';
+import OutageForecastChart from './components/OutageForecastChart';
 
 // --- CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -31,7 +32,7 @@ const AEMO_FACILITY_NAME_MAP = {
 };
 
 const FACILITY_CAPACITIES = {
-    "North West Shelf": 630, "Gorgon Gas Plant": 300, "Wheatstone": 230,
+    "North West Shelf": 630, "Gorgon": 300, "Wheatstone": 230,
     "Macedon": 170, "Varanus Island": 390, "Devil Creek": 50, "Pluto": 40,
     "Xyris Production Facility": 30, "Walyering Production Facility": 33, "Beharra Springs": 25
 };
@@ -75,7 +76,6 @@ const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
     return (
         <Card>
             <h2 className="text-xl font-bold text-gray-800 mb-4">Scenario Planner</h2>
-            {/* Basic scenario planner UI. Can be expanded. */}
             <div className="flex items-center space-x-4">
                 <label className="flex items-center">
                     <input type="checkbox" checked={scenario.active} onChange={handleToggle} />
@@ -186,30 +186,6 @@ function VolatilityChart({ data }) {
     );
 }
 
-function FacilityConstraintsChart({ constraintsData }) {
-    return (
-        <Card>
-            <div className="flex items-center mb-1"><AlertTriangle className="w-6 h-6 mr-3 text-amber-500" /><h2 className="text-xl font-bold text-gray-800">WA Gas Facility Constraints</h2></div>
-            <p className="text-sm text-gray-500 mb-4">Live facility constraints and outages from AEMO medium term capacity data.</p>
-            <div style={{ width: '100%', height: 400 }}>
-                <ResponsiveContainer>
-                    <BarChart layout="vertical" data={constraintsData} margin={{ top: 5, right: 30, left: 80, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" domain={[0, 'dataMax']} />
-                        <YAxis type="category" dataKey="facility" tick={{ fontSize: 12 }} />
-                        <Tooltip formatter={(value, name) => [`${value} TJ/day`, name]} />
-                        <Legend />
-                        <Bar dataKey="normal" stackId="constraint" fill="#22c55e" name="Normal" />
-                        <Bar dataKey="maintenance" stackId="constraint" fill="#f59e0b" name="Maintenance" />
-                        <Bar dataKey="construction" stackId="constraint" fill="#dc2626" name="Construction" />
-                        <Line type="monotone" dataKey="totalCapacity" stroke="#374151" strokeWidth={2} name="Total Capacity" />
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-        </Card>
-    );
-}
-
 function StorageFlowsChart({ data }) {
     const storageData = useMemo(() => {
         return data.map(item => ({
@@ -314,14 +290,14 @@ function GSSOForecastCharts() {
 }
 
 // --- PAGE COMPONENTS ---
-function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo, constraintsData }) {
+function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenario, setScenario, navigateTo, outageForecastData, demandForecast }) {
     return (
         <div className="space-y-6">
             <KeyMetrics data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <StrategySection />
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
-            <FacilityConstraintsChart constraintsData={constraintsData} />
+            <OutageForecastChart data={outageForecastData} demandForecast={demandForecast} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} forecastStartDate={liveData.forecastStartDate} />
             <SupplyChart data={liveData.supplyOnly} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -370,12 +346,13 @@ export default function App() {
     const [activeFacilities, setActiveFacilities] = useState({});
     const [scenario, setScenario] = useState({ active: false, facility: null, outagePercent: 100 });
     const [liveData, setLiveData] = useState({ processedFlows: [], facilityInfo: {}, storageAnalysis: [], totalStorageCapacity: 0, facilityConsumption: [], volatility: [], alignedFlows: [], supplyOnly: [] });
-    const [constraintsData, setConstraintsData] = useState([]);
+    const [outageForecastData, setOutageForecastData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [demandForecast, setDemandForecast] = useState(1000);
+    const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
     const [alerts, setAlerts] = useState([]);
     const [triggeredAlerts, setTriggeredAlerts] = useState([]);
-    const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
     
     const [baseData, setBaseData] = useState(null);
 
@@ -404,23 +381,6 @@ export default function App() {
                 const capacityData = await capacityRes.json();
                 const mtcData = await mtcRes.json();
 
-                const constraints = mtcData.rows.reduce((acc, row) => {
-                    const facilityName = row.facilityName;
-                    if (!acc[facilityName]) {
-                        acc[facilityName] = { facility: facilityName, totalCapacity: 0, normal: 0, maintenance: 0, construction: 0 };
-                    }
-                    acc[facilityName].totalCapacity = Math.max(acc[facilityName].totalCapacity, row.capacity || 0);
-                    if (row.capacityType && row.capacityType.includes('Maintenance')) {
-                        acc[facilityName].maintenance += row.capacity || 0;
-                    } else if (row.capacityType && row.capacityType.includes('Construction')) {
-                        acc[facilityName].construction += row.capacity || 0;
-                    } else {
-                        acc[facilityName].normal += row.capacity || 0;
-                    }
-                    return acc;
-                }, {});
-                setConstraintsData(Object.values(constraints));
-
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
                 let colorIndex = 0;
@@ -444,6 +404,37 @@ export default function App() {
                     }
                     return acc;
                 }, 0);
+
+                // New logic to process outages by date
+                const totalProductionCapacity = Object.keys(FACILITY_CAPACITIES).reduce((sum, key) => sum + FACILITY_CAPACITIES[key], 0);
+                const outagesByDay = {};
+
+                mtcData.rows.forEach(row => {
+                    if (PRODUCTION_FACILITIES.includes(AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName)) {
+                        const date = row.gasDay;
+                        if (!outagesByDay[date]) {
+                            outagesByDay[date] = { maintenance: 0, construction: 0 };
+                        }
+                        if (row.capacityType?.includes('Maintenance')) {
+                            outagesByDay[date].maintenance += row.capacity || 0;
+                        } else if (row.capacityType?.includes('Construction')) {
+                            outagesByDay[date].construction += row.capacity || 0;
+                        }
+                    }
+                });
+
+                const forecastData = Object.entries(outagesByDay).map(([date, outages]) => {
+                    const available = totalProductionCapacity - outages.maintenance - outages.construction;
+                    return {
+                        date,
+                        totalCapacity: totalProductionCapacity,
+                        maintenance: outages.maintenance,
+                        construction: outages.construction,
+                        availableCapacity: available < 0 ? 0 : available,
+                    };
+                }).sort((a,b) => new Date(a.date) - new Date(b.date));
+
+                setOutageForecastData(forecastData);
 
                 const today = new Date();
                 const monthPromises = [];
@@ -537,6 +528,7 @@ export default function App() {
         
         const last7DaysDemand = alignedFlows.slice(-7).map(d => d.totalDemand);
         const forecastDemand = last7DaysDemand.length > 0 ? last7DaysDemand.reduce((a, b) => a + b, 0) / last7DaysDemand.length : 0;
+        setDemandForecast(forecastDemand);
         
         const forecastStartDate = new Date(lastActualConsumptionDate);
         forecastStartDate.setDate(forecastStartDate.getDate() + 1);
@@ -699,7 +691,7 @@ export default function App() {
                 {error && <ErrorDisplay message={error} />}
                 {!loading && !error && (
                     <>
-                        {page === 'dashboard' && <DashboardPage liveData={filteredLiveData} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} scenario={scenario} setScenario={setScenario} navigateTo={navigateTo} constraintsData={constraintsData} />}
+                        {page === 'dashboard' && <DashboardPage liveData={filteredLiveData} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} scenario={scenario} setScenario={setScenario} navigateTo={navigateTo} outageForecastData={outageForecastData} demandForecast={demandForecast} />}
                         {page === 'yara' && <YaraPage yaraAdjustment={yaraAdjustment} setYaraAdjustment={setYaraAdjustment} navigateTo={navigateTo} />}
                         {page === 'storage' && <StoragePage liveData={filteredLiveData} navigateTo={navigateTo} />}
                         {page === 'forecasts' && <ForecastsPage navigateTo={navigateTo} />}
