@@ -6,6 +6,10 @@ import StrategySection from './components/StrategySection';
 import FacilityControls from './components/FacilityControls';
 import SupplyDemandChart from './components/SupplyDemandChart';
 import SupplyChart from './components/SupplyChart';
+import AlertsManager from './components/AlertsManager';
+import AlertNotification from './components/AlertNotification';
+import ComparisonPage from './pages/ComparisonPage';
+import PageTitle from './components/PageTitle';
 
 // --- CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -57,12 +61,6 @@ const getFacilityCapacity = (facilityName) => FACILITY_CAPACITIES[facilityName] 
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
-const PageTitle = ({ children, backAction }) => (
-    <div className="flex items-center mb-6">
-        {backAction && <button onClick={backAction} className="p-2 rounded-full hover:bg-gray-200 mr-4"><ArrowLeft className="w-6 h-6 text-gray-600" /></button>}
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">{children}</h1>
-    </div>
-);
 const LoadingSpinner = () => (
     <div className="flex flex-col items-center justify-center h-96">
         <Loader className="w-16 h-16 animate-spin text-blue-600" />
@@ -380,8 +378,22 @@ export default function App() {
     const [constraintsData, setConstraintsData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [alerts, setAlerts] = useState([]);
+    const [triggeredAlerts, setTriggeredAlerts] = useState([]);
+    const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
     
     const [baseData, setBaseData] = useState(null);
+
+    useEffect(() => {
+        const savedAlerts = localStorage.getItem('waGasDashboardAlerts');
+        if (savedAlerts) {
+            setAlerts(JSON.parse(savedAlerts));
+        }
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('waGasDashboardAlerts', JSON.stringify(alerts));
+    }, [alerts]);
 
     useEffect(() => {
         const fetchAndProcessData = async () => {
@@ -497,12 +509,11 @@ export default function App() {
                         const supply = parseFloat(row.receipt) || 0;
                         const facilityCapacity = getFacilityCapacity(displayName);
                         if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
-                            console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
+                            // Potentially invalid data, skip this record
                             return;
                         }
-                        if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
-                            dailyData[date][displayName] = supply;
-                        }
+                        // Sum up receipts for the same facility on the same day
+                        dailyData[date][displayName] = (dailyData[date][displayName] || 0) + supply;
                     } else if (isStorage) {
                         storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
                     }
@@ -590,7 +601,50 @@ export default function App() {
 
     }, [baseData, yaraAdjustment]);
 
+    useEffect(() => {
+        if (liveData.processedFlows.length > 0) {
+            checkAlerts(liveData);
+        }
+    }, [liveData, alerts]);
+
     const navigateTo = (targetPage) => setPage(targetPage);
+
+    const checkAlerts = (latestMetrics) => {
+        if (!alerts || alerts.length === 0) return;
+
+        const now = new Date().getTime();
+        const newTriggeredAlerts = [];
+
+        const latestData = {
+            totalSupply: latestMetrics.alignedFlows[latestMetrics.alignedFlows.length - 1]?.totalSupply,
+            totalDemand: latestMetrics.alignedFlows[latestMetrics.alignedFlows.length - 1]?.totalDemand,
+            storageLevel: latestMetrics.storageAnalysis[latestMetrics.storageAnalysis.length - 1]?.totalVolume,
+            volatility: latestMetrics.volatility[latestMetrics.volatility.length - 1]?.volatility,
+        };
+
+        alerts.forEach(alert => {
+            const metricValue = latestData[alert.metric];
+            if (metricValue === undefined || metricValue === null) return;
+
+            let conditionMet = false;
+            if (alert.condition === 'less-than' && metricValue < alert.value) {
+                conditionMet = true;
+            } else if (alert.condition === 'greater-than' && metricValue > alert.value) {
+                conditionMet = true;
+            }
+
+            if (conditionMet) {
+                const lastTriggered = triggeredAlerts.find(t => t.id === alert.id)?.timestamp || 0;
+                if (now - lastTriggered > 24 * 60 * 60 * 1000) { // Only trigger once every 24 hours
+                    newTriggeredAlerts.push({ ...alert, timestamp: now, actualValue: metricValue });
+                }
+            }
+        });
+
+        if (newTriggeredAlerts.length > 0) {
+            setTriggeredAlerts(prev => [...prev, ...newTriggeredAlerts]);
+        }
+    };
     
     const filteredLiveData = useMemo(() => {
         if (!liveData.processedFlows) return liveData;
@@ -613,7 +667,33 @@ export default function App() {
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
-            <header className="bg-white shadow-sm"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4"><h1 className="text-3xl font-bold text-gray-900">WA Gas Dashboard</h1><p className="text-sm text-gray-500">Live Data from AEMO, with Trader Analytics & GSOO Integration</p></div></header>
+            <AlertNotification triggeredAlerts={triggeredAlerts} setTriggeredAlerts={setTriggeredAlerts} />
+            {isAlertsModalOpen && <AlertsManager alerts={alerts} setAlerts={setAlerts} closeModal={() => setIsAlertsModalOpen(false)} />}
+            <header className="bg-white shadow-sm">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-900">WA Gas Dashboard</h1>
+                            <p className="text-sm text-gray-500">Live Data from AEMO, with Trader Analytics & GSOO Integration</p>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                            <button
+                                onClick={() => navigateTo('comparison')}
+                                className="flex items-center bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300 transition"
+                            >
+                                Compare
+                            </button>
+                            <button
+                                onClick={() => setIsAlertsModalOpen(true)}
+                                className="flex items-center bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 transition"
+                            >
+                                <Bell className="w-5 h-5 mr-2" />
+                                Manage Alerts
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 {loading && <LoadingSpinner />}
                 {error && <ErrorDisplay message={error} />}
@@ -623,6 +703,7 @@ export default function App() {
                         {page === 'yara' && <YaraPage yaraAdjustment={yaraAdjustment} setYaraAdjustment={setYaraAdjustment} navigateTo={navigateTo} />}
                         {page === 'storage' && <StoragePage liveData={filteredLiveData} navigateTo={navigateTo} />}
                         {page === 'forecasts' && <ForecastsPage navigateTo={navigateTo} />}
+                        {page === 'comparison' && <ComparisonPage liveData={liveData} navigateTo={navigateTo} />}
                     </>
                 )}
             </main>
