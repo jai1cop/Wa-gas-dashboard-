@@ -9,8 +9,10 @@ const DateRangeSelector = ({ period, setPeriod, color = 'blue' }) => {
         }));
     };
 
+    const borderColorClass = color === 'green' ? 'border-green-500' : 'border-blue-500';
+
     return (
-        <div className={`p-4 border-l-4 border-${color}-500 bg-gray-50 rounded-r-lg`}>
+        <div className={`p-4 border-l-4 ${borderColorClass} bg-gray-50 rounded-r-lg`}>
             <div className="flex items-center space-x-4">
                 <div className="flex-1">
                     <label htmlFor={`start-${color}`} className="block text-sm font-medium text-gray-700">Start Date</label>
