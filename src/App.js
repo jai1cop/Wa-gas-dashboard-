@@ -30,11 +30,6 @@ const AEMO_FACILITY_NAME_MAP = {
     "Gorgon Gas Plant": "Gorgon",
 };
 
-// Reverse mapping for data processing
-const DATA_TO_DISPLAY_NAME_MAP = Object.fromEntries(
-    Object.entries(AEMO_FACILITY_NAME_MAP).map(([display, data]) => [data, display])
-);
-
 const FACILITY_CAPACITIES = {
     "North West Shelf": 630, "Gorgon Gas Plant": 300, "Wheatstone": 230,
     "Macedon": 170, "Varanus Island": 390, "Devil Creek": 50, "Pluto": 40,
@@ -495,7 +490,7 @@ export default function App() {
                     if (!date) return;
                     
                     const apiName = row.facilityName;
-                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
+                    const displayName = AEMO_FACILITY_NAME_MAP[apiName] || apiName;
                     
                     if (!dailyData[date]) {
                         dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
