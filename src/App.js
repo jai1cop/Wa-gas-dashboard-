@@ -10,7 +10,8 @@ import AlertsManager from './components/AlertsManager';
 import AlertNotification from './components/AlertNotification';
 import ComparisonPage from './pages/ComparisonPage';
 import PageTitle from './components/PageTitle';
-import OutageForecastChart from './components/OutageForecastChart';
+import TotalCapacityChart from './components/TotalCapacityChart';
+import FacilityOutageGanttChart from './components/FacilityOutageGanttChart';
 
 // --- CONFIGURATION ---
 const AEMO_API_BASE_URL = "/api/report";
@@ -25,7 +26,6 @@ const PRODUCTION_FACILITIES = [
     "Walyering Production Facility", "Beharra Springs"
 ];
 
-// Map display names to data names if they differ
 const AEMO_FACILITY_NAME_MAP = {
     "Karratha Gas Plant": "North West Shelf",
     "Gorgon Gas Plant": "Gorgon",
@@ -291,9 +291,12 @@ function DashboardPage({ liveData, activeFacilities, setActiveFacilities, scenar
         <div className="space-y-6">
             <KeyMetrics data={liveData.alignedFlows} storageData={liveData.storageAnalysis} volatility={liveData.volatility} />
             <StrategySection />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <TotalCapacityChart outageForecastData={outageForecastData} demandForecast={demandForecast} />
+                <FacilityOutageGanttChart outageForecastData={outageForecastData} />
+            </div>
             <ScenarioPlanner facilities={liveData.facilityInfo} scenario={scenario} setScenario={setScenario} onApply={setScenario} />
             <FacilityControls facilityInfo={liveData.facilityInfo} activeFacilities={activeFacilities} setActiveFacilities={setActiveFacilities} />
-            <OutageForecastChart data={outageForecastData} demandForecast={demandForecast} />
             <SupplyDemandChart data={liveData.processedFlows} facilityInfo={liveData.facilityInfo} scenario={scenario} forecastStartDate={liveData.forecastStartDate} />
             <SupplyChart data={liveData.supplyOnly} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -401,7 +404,6 @@ export default function App() {
                     return acc;
                 }, 0);
 
-                // New, more detailed logic for stacked bar chart
                 const outagesByFacilityAndDate = {};
                 mtcData.rows.forEach(row => {
                     const displayName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
@@ -433,7 +435,7 @@ export default function App() {
                         let status = 'Normal';
 
                         if (outageInfo) {
-                            availableCapacity -= outageInfo.outage;
+                            availableCapacity = outageInfo.outage;
                             if (outageInfo.type?.includes('Maintenance')) {
                                 status = 'Maintenance';
                             } else if (outageInfo.type?.includes('Construction')) {
