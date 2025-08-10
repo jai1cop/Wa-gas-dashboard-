@@ -354,6 +354,7 @@ export default function App() {
     const [triggeredAlerts, setTriggeredAlerts] = useState([]);
     
     const [baseData, setBaseData] = useState(null);
+    const [mtcData, setMtcData] = useState(null);
 
     useEffect(() => {
         const savedAlerts = localStorage.getItem('waGasDashboardAlerts');
@@ -378,7 +379,8 @@ export default function App() {
                 if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
                 
                 const capacityData = await capacityRes.json();
-                const mtcData = await mtcRes.json();
+                const fetchedMtcData = await mtcRes.json();
+                setMtcData(fetchedMtcData);
 
                 const facilityInfo = {};
                 const colors = ["#06b6d4", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#3b82f6", "#ec4899", "#d946ef", "#6b7280"];
@@ -395,7 +397,7 @@ export default function App() {
                     }
                 });
                 
-                const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
+                const totalStorageCapacity = fetchedMtcData.rows.reduce((acc, row) => {
                     const apiName = row.facilityName;
                     const displayName = AEMO_FACILITY_NAME_MAP[apiName] || apiName;
                     if (facilityInfo[displayName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
@@ -403,56 +405,6 @@ export default function App() {
                     }
                     return acc;
                 }, 0);
-
-                const outagesByFacilityAndDate = {};
-                mtcData.rows.forEach(row => {
-                    const displayName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
-                    if (PRODUCTION_FACILITIES.includes(displayName)) {
-                        const key = `${displayName}:${row.gasDay}`;
-                        outagesByFacilityAndDate[key] = {
-                            outage: row.capacity || 0,
-                            type: row.capacityType,
-                        };
-                    }
-                });
-
-                const chartData = [];
-                const startDate = new Date();
-                for (let i = 0; i < 90; i++) {
-                    const date = new Date(startDate);
-                    date.setDate(date.getDate() + i);
-                    const dateString = date.toISOString().split('T')[0];
-
-                    const dayData = { date: dateString };
-                    let totalAvailable = 0;
-
-                    PRODUCTION_FACILITIES.forEach(facilityName => {
-                        const fullCapacity = FACILITY_CAPACITIES[facilityName] || 0;
-                        const outageKey = `${facilityName}:${dateString}`;
-                        const outageInfo = outagesByFacilityAndDate[outageKey];
-
-                        let availableCapacity = fullCapacity;
-                        let status = 'Normal';
-
-                        if (outageInfo) {
-                            availableCapacity = outageInfo.outage;
-                            if (outageInfo.type?.includes('Maintenance')) {
-                                status = 'Maintenance';
-                            } else if (outageInfo.type?.includes('Construction')) {
-                                status = 'Construction';
-                            }
-                        }
-
-                        dayData[facilityName] = availableCapacity < 0 ? 0 : availableCapacity;
-                        dayData[`${facilityName}_status`] = status;
-                        totalAvailable += dayData[facilityName];
-                    });
-
-                    dayData.totalAvailable = totalAvailable;
-                    chartData.push(dayData);
-                }
-
-                setOutageForecastData(chartData);
 
                 const today = new Date();
                 const monthPromises = [];
@@ -478,6 +430,86 @@ export default function App() {
         };
         fetchAndProcessData();
     }, []);
+
+    useEffect(() => {
+        if (!mtcData || !mtcData.rows || mtcData.rows.length === 0) {
+            setOutageForecastData([]);
+            return;
+        }
+
+        const outagesByFacilityAndDate = {};
+        let minDateStr = '';
+        let maxDateStr = '';
+
+        mtcData.rows.forEach(row => {
+            if (!row.gasDay) return;
+            const normalizedDate = row.gasDay.split('T')[0];
+
+            if (!minDateStr || normalizedDate < minDateStr) minDateStr = normalizedDate;
+            if (!maxDateStr || normalizedDate > maxDateStr) maxDateStr = normalizedDate;
+
+            const displayName = AEMO_FACILITY_NAME_MAP[row.facilityName] || row.facilityName;
+            if (PRODUCTION_FACILITIES.includes(displayName)) {
+                const key = `${displayName}:${normalizedDate}`;
+                outagesByFacilityAndDate[key] = {
+                    outage: row.capacity || 0,
+                    type: row.capacityType,
+                };
+            }
+        });
+
+        if (!minDateStr || !maxDateStr) {
+            setOutageForecastData([]);
+            return;
+        }
+
+        const chartData = [];
+        const dataStartDate = new Date(minDateStr + 'T00:00:00Z');
+        const dataEndDate = new Date(maxDateStr + 'T00:00:00Z');
+
+        const today = new Date();
+        const windowStart = new Date(today);
+        windowStart.setDate(today.getDate() - 45);
+        const windowEnd = new Date(today);
+        windowEnd.setDate(today.getDate() + 45);
+
+        const finalStartDate = new Date(Math.min(dataStartDate, windowStart));
+        const finalEndDate = new Date(Math.max(dataEndDate, windowEnd));
+
+        for (let d = new Date(finalStartDate); d <= finalEndDate; d.setDate(d.getDate() + 1)) {
+            const dateString = d.toISOString().split('T')[0];
+
+            const dayData = { date: dateString };
+            let totalAvailable = 0;
+
+            PRODUCTION_FACILITIES.forEach(facilityName => {
+                const fullCapacity = FACILITY_CAPACITIES[facilityName] || 0;
+                const outageKey = `${facilityName}:${dateString}`;
+                const outageInfo = outagesByFacilityAndDate[outageKey];
+
+                let availableCapacity = fullCapacity;
+                let status = 'Normal';
+
+                if (outageInfo) {
+                    availableCapacity = outageInfo.outage;
+                    if (outageInfo.type?.includes('Maintenance')) {
+                        status = 'Maintenance';
+                    } else if (outageInfo.type?.includes('Construction')) {
+                        status = 'Construction';
+                    }
+                }
+
+                dayData[facilityName] = availableCapacity < 0 ? 0 : availableCapacity;
+                dayData[`${facilityName}_status`] = status;
+                totalAvailable += dayData[facilityName];
+            });
+
+            dayData.totalAvailable = totalAvailable;
+            chartData.push(dayData);
+        }
+
+        setOutageForecastData(chartData);
+    }, [mtcData]);
 
     useEffect(() => {
         if (!baseData) return;
