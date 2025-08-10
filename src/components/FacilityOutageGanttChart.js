@@ -17,7 +17,7 @@ const transformDataForGantt = (dailyData) => {
     PRODUCTION_FACILITIES.forEach(facilityName => {
         let currentSegment = null;
 
-        dailyData.forEach((day, index) => {
+        dailyData.forEach((day) => {
             const status = day[`${facilityName}_status`];
             const date = new Date(day.date);
 
@@ -39,16 +39,16 @@ const transformDataForGantt = (dailyData) => {
                     end: date,
                 };
             }
-
-            if (index === dailyData.length - 1) {
-                segments.push(currentSegment);
-            }
         });
+
+        if (currentSegment) {
+            segments.push(currentSegment);
+        }
     });
 
     return segments.map(s => ({
         ...s,
-        range: [s.start.getTime(), s.end.getTime() + (24*60*60*1000 - 1)], // full day
+        range: [s.start.getTime(), s.end.getTime() + (24 * 60 * 60 * 1000 - 1)], // full day
     }));
 };
 
@@ -58,11 +58,13 @@ const FacilityOutageGanttChart = ({ outageForecastData }) => {
 
     const facilities = PRODUCTION_FACILITIES;
     const domain = useMemo(() => {
-        if(ganttData.length === 0) return [0, 0];
-        const start = ganttData[0].range[0];
-        const end = ganttData[ganttData.length - 1].range[1];
-        return [start, end];
-    }, [ganttData]);
+        const start = new Date();
+        const end = new Date();
+        start.setHours(0, 0, 0, 0);
+        end.setDate(start.getDate() + 90);
+        end.setHours(23, 59, 59, 999);
+        return [start.getTime(), end.getTime()];
+    }, []);
 
     return (
         <Card>
@@ -76,6 +78,7 @@ const FacilityOutageGanttChart = ({ outageForecastData }) => {
                             domain={domain}
                             tickFormatter={(time) => new Date(time).toLocaleDateString('en-CA')}
                             tickCount={5}
+                            scale="time"
                         />
                         <YAxis type="category" dataKey="facility" domain={facilities} width={100} />
                         <Tooltip
