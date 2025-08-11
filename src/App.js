@@ -47,7 +47,7 @@ const ErrorDisplay = ({ message }) => (
             <div className="ml-3">
                 <h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3>
                 <div className="mt-2 text-sm text-red-700">
-                    <p>{message}</p>
+                    {message}
                     <p className="mt-1 font-bold">Displaying sample data instead. Please check your network or proxy settings.</p>
                 </div>
             </div>
@@ -60,7 +60,6 @@ const SummaryTiles = ({ data, storageData, volatility }) => {
     const latestData = data[data.length - 1] || {};
     const latestStorage = storageData[storageData.length - 1] || {};
     const latestVolatility = volatility[volatility.length - 1] || {};
-
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card>
@@ -119,6 +118,128 @@ const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
     const handleFacilityChange = (e) => setScenario(s => ({ ...s, facility: e.target.value }));
     const handleOutageChange = (e) => setScenario(s => ({ ...s, outagePercent: Number(e.target.value) }));
     const handleToggle = () => setScenario(s => ({ ...s, active: !s.active }));
-
     return (
         <Card>
+            <div className="flex items-center mb-4">
+                <FlaskConical className="w-6 h-6 mr-3 text-blue-500" />
+                <h2 className="text-xl font-bold text-gray-800">Scenario Planner</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility</label>
+                    <select value={scenario.facility} onChange={handleFacilityChange} className="w-full border border-gray-300 rounded px-3 py-2">
+                        {facilities.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Outage %</label>
+                    <input type="number" value={scenario.outagePercent} onChange={handleOutageChange} className="w-full border border-gray-300 rounded px-3 py-2" min="0" max="100" />
+                </div>
+                <div className="flex items-end">
+                    <button onClick={handleToggle} className={`px-4 py-2 rounded mr-2 ${scenario.active ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
+                        {scenario.active ? 'Remove Scenario' : 'Apply Scenario'}
+                    </button>
+                    {scenario.active && <span className="text-sm text-orange-600 font-semibold">Scenario Active</span>}
+                </div>
+            </div>
+        </Card>
+    );
+};
+
+// Updated main App component
+export default function App() {
+    const [data, setData] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [currentPage, setCurrentPage] = useState('overview');
+    const [scenario, setScenario] = useState({ facility: 'Dongara', outagePercent: 10, active: false });
+    
+    // Generate additional data
+    const gsooData = useMemo(generateGSOODemand, []);
+    const storageData = useMemo(() => {
+        return data.map((d, i) => ({
+            date: d.date,
+            timestamp: d.timestamp,
+            totalVolume: 5000 + Math.sin(i * 0.1) * 1000 + (Math.random() - 0.5) * 200
+        }));
+    }, [data]);
+    
+    const volatilityData = useMemo(() => {
+        return data.map((d, i) => {
+            const baseVolatility = 50;
+            const seasonal = Math.sin(i * 0.02) * 20;
+            const random = (Math.random() - 0.5) * 30;
+            return {
+                date: d.date,
+                timestamp: d.timestamp,
+                volatility: Math.max(0, baseVolatility + seasonal + random)
+            };
+        });
+    }, [data]);
+    
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const result = await fetchAemoData();
+            if (result.error) {
+                setError(result.error);
+                setData(generateMockLiveData());
+            } else {
+                setData(result.data);
+            }
+        } catch (err) {
+            setError('Failed to connect to AEMO servers');
+            setData(generateMockLiveData());
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+    
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+    
+    // Apply scenario modifications
+    const processedData = useMemo(() => {
+        if (!scenario.active) return data;
+        return data.map(d => {
+            const facilityKey = scenario.facility.toLowerCase().replace(/\s+/g, '_');
+            if (d[facilityKey] !== undefined) {
+                const reduction = d[facilityKey] * (scenario.outagePercent / 100);
+                return {
+                    ...d,
+                    [facilityKey]: d[facilityKey] - reduction,
+                    totalSupply: (d.totalSupply || 0) - reduction
+                };
+            }
+            return d;
+        });
+    }, [data, scenario]);
+    
+    if (isLoading) return <LoadingSpinner />;
+    
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+            <div className="max-w-7xl mx-auto">
+                <PageTitle backAction={currentPage !== 'overview' ? () => setCurrentPage('overview') : null}>
+                    WA Gas Dashboard {currentPage !== 'overview' && `- ${currentPage.charAt(0).toUpperCase() + currentPage.slice(1)}`}
+                </PageTitle>
+                
+                {error && <ErrorDisplay message={error} />}
+                
+                <SummaryTiles data={processedData} storageData={storageData} volatility={volatilityData} />
+                <div className="mt-6">
+                    <StrategySection />
+                </div>
+                <div className="mt-6">
+                    <ScenarioPlanner
+                        facilities={Object.keys(PRODUCTION_FACILITIES)}
+                        scenario={scenario}
+                        setScenario={setScenario}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
