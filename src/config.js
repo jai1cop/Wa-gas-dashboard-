@@ -12,7 +12,7 @@ export const AEMO_FACILITY_NAME_MAP = {
 };
 
 export const FACILITY_CAPACITIES = {
-    "North West Shelf": 630, "Gorgon": 300, "Wheatstone": 230,
+    "North West Shelf": 630, "Gorgon Gas Plant": 300, "Wheatstone": 230,
     "Macedon": 170, "Varanus Island": 390, "Devil Creek": 50, "Pluto": 40,
     "Xyris Production Facility": 30, "Walyering Production Facility": 33, "Beharra Springs": 25
 };

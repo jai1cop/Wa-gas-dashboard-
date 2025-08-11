@@ -19,32 +19,6 @@ const generateGSOODemand = () => {
     return data;
 };
 
-const CustomTooltip = ({ active, payload, label }) => {
-    if (!active || !payload || !payload.length) return null;
-
-    const data = payload[0].payload;
-    const totalSupply = data.totalDailySupply || 0;
-    const totalDemand = data.totalDemand || 0;
-    const isForecast = data.isForecast;
-
-    return (
-        <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
-            <p className="font-semibold">{label}</p>
-            <p className="text-blue-600">Total Supply: {totalSupply.toFixed(0)} TJ/day</p>
-            <p className="text-red-600">
-                Total Consumption: {totalDemand.toFixed(0)} TJ/day {isForecast && <span className="text-xs text-gray-500">(Forecast)</span>}
-            </p>
-            <div className="mt-2 pt-2 border-t">
-                {payload.filter(p => p.dataKey.startsWith('gsoo') || (p.dataKey !== 'totalDailySupply' && p.dataKey !== 'actualDemand' && p.dataKey !== 'forecastDemand')).map((entry, index) => (
-                    <p key={index} style={{ color: entry.color }} className="text-sm">
-                        {entry.name}: {entry.value?.toFixed(0)} TJ/day
-                    </p>
-                ))}
-            </div>
-        </div>
-    );
-};
-
 function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) {
     const [dateRange, setDateRange] = useState({ start: null, end: null });
 
@@ -77,6 +51,22 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
         }
     };
 
+    const customTooltip = ({ active, payload, label }) => {
+        if (!active || !payload || !payload.length) return null;
+        const totalSupply = payload.find(p => p.dataKey === 'totalDailySupply')?.value || 0;
+        return (
+            <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
+                <p className="font-semibold">{label}</p>
+                <p className="text-blue-600">Total Daily Supply: {totalSupply.toFixed(0)} TJ/day</p>
+                {payload.map((entry, index) => (
+                    <p key={index} style={{ color: entry.color }}>
+                        {entry.name}: {entry.value?.toFixed(0)} TJ/day
+                    </p>
+                ))}
+            </div>
+        );
+    };
+
     return (
         <Card>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
@@ -89,15 +79,13 @@ function SupplyDemandChart({ data, facilityInfo, scenario, forecastStartDate }) 
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                         <YAxis label={{ value: 'TJ/day', angle: -90, position: 'insideLeft', fill: '#6b7280' }} tick={{ fontSize: 12 }} />
-                        <Tooltip content={<CustomTooltip />} />
+                        <Tooltip content={customTooltip} />
                         <Legend />
                         <ReferenceArea x1={forecastStartDate} x2={filteredData[filteredData.length - 1]?.date} stroke="none" fill="#f0f9ff" />
                         {Object.keys(facilityInfo).filter(f => facilityInfo[f].type === 'Production').map(facility => <Bar key={facility} dataKey={facilityInfo[facility].dataName} stackId="supply" fill={facilityInfo[facility].color} name={facility} />)}
                         {scenario.active && <Line type="monotone" dataKey="simulatedSupply" stroke="#e11d48" strokeWidth={3} dot={false} name="Simulated Supply" />}
                         <Line type="monotone" dataKey="gsooMedianDemand" stroke="#ff6b35" strokeWidth={2} dot={false} name="GSOO Median Demand (2022-2024)" strokeDasharray="8 8" />
                         <Line type="monotone" dataKey="totalDailySupply" stroke="#0ea5e9" strokeWidth={3} dot={false} name="Total Daily Supply" />
-                        <Line type="monotone" dataKey="actualDemand" stroke="#ef4444" strokeWidth={3} dot={false} name="Total Consumption (Actual)" />
-                        <Line type="monotone" dataKey="forecastDemand" stroke="#ef4444" strokeWidth={3} dot={false} name="Total Consumption (Forecast)" strokeDasharray="5 5" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
