@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ArrowLeft, AlertTriangle, Loader, Database, TrendingUp, Zap, Lightbulb, Activity, FlaskConical } from 'lucide-react';
 import { fetchAemoData } from './api';
 import { PRODUCTION_FACILITIES } from './config';
-import { generateMockLiveData } from './mockData';
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
@@ -163,16 +162,19 @@ export default function App() {
         setIsLoading(true);
         setError(null);
         try {
+            // A more robust solution would process and merge the various data sources.
+            // For now, we'll use flowData as the primary source for the charts.
             const result = await fetchAemoData();
-            if (result.error) {
-                setError(result.error);
-                setData(generateMockLiveData());
+            if (result.flowData && result.flowData.length > 0) {
+                setData(result.flowData);
             } else {
-                setData(result.data);
+                // Handle cases where flowData is empty or not available
+                setError("Live data loaded but contains no flow information. Displaying empty chart.");
+                setData([]);
             }
         } catch (err) {
-            setError('Failed to connect to AEMO servers');
-            setData(generateMockLiveData());
+            setError('Failed to connect to AEMO servers. Displaying empty chart.');
+            setData([]);
         } finally {
             setIsLoading(false);
         }
