@@ -383,59 +383,79 @@ function FacilityConstraintsChart({ constraintsData }) {
     );
 }
 
-function StorageFlowsChart({ data }) {
-    const storageData = useMemo(() => {
-        return data.map(item => ({
-            ...item,
-            tubridgiInjection: Math.max(0, item.netFlow * 0.6),
-            tubridgiWithdrawal: Math.min(0, item.netFlow * 0.6),
-            mondarraInjection: Math.max(0, item.netFlow * 0.4),
-            mondarraWithdrawal: Math.min(0, item.netFlow * 0.4),
-            tubridgiVolume: 30 + Math.random() * 30,
-            mondarraVolume: 8 + Math.random() * 10
-        }));
-    }, [data]);
+function StorageOverviewChart({ data, facilityInfo, facilityColors }) {
+    const storageFacilities = Object.keys(facilityInfo || {});
+
+    if (!data || data.length === 0 || storageFacilities.length === 0) {
+        return <Card><p>No storage data available.</p></Card>;
+    }
+
     return (
-        <div className="space-y-6">
-            <Card>
-                <div className="flex items-center mb-1"><Activity className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-gray-800">Storage Flows - Individual Facilities</h2></div>
-                <p className="text-sm text-gray-500 mb-4">Daily injection and withdrawal flows for Tubridgi and Mondarra storage facilities.</p>
-                <div style={{ width: '100%', height: 400 }}>
-                    <ResponsiveContainer>
-                        <ComposedChart data={storageData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                            <YAxis label={{ value: 'Flow (TJ/d)', angle: -90, position: 'insideLeft' }} />
-                            <Tooltip formatter={(value, name) => [`${value.toFixed(1)} TJ/d`, name]} />
-                            <Legend />
-                            <Bar dataKey="tubridgiInjection" name="Tubridgi Injection" fill="#22c55e" />
-                            <Bar dataKey="tubridgiWithdrawal" name="Tubridgi Withdrawal" fill="#dc2626" />
-                            <Bar dataKey="mondarraInjection" name="Mondarra Injection" fill="#16a34a" />
-                            <Bar dataKey="mondarraWithdrawal" name="Mondarra Withdrawal" fill="#991b1b" />
-                        </ComposedChart>
-                    </ResponsiveContainer>
-                </div>
-            </Card>
-            <Card>
-                <div className="flex items-center mb-1"><Database className="w-6 h-6 mr-3 text-purple-600" /><h2 className="text-xl font-bold text-gray-800">Storage Volumes by Facility</h2></div>
-                <p className="text-sm text-gray-500 mb-4">Current storage volumes at Tubridgi (60 PJ capacity) and Mondarra (18 PJ capacity).</p>
-                <div style={{ width: '100%', height: 300 }}>
-                    <ResponsiveContainer>
-                        <AreaChart data={storageData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                            <YAxis label={{ value: 'Volume (PJ)', angle: -90, position: 'insideLeft' }} />
-                            <Tooltip formatter={(value, name) => [`${value.toFixed(1)} PJ`, name]} />
-                            <Legend />
-                            <ReferenceLine y={60} label={{ value: 'Tubridgi Max (60 PJ)', position: 'insideTopRight' }} stroke="#7c3aed" strokeDasharray="5 5" />
-                            <ReferenceLine y={18} label={{ value: 'Mondarra Max (18 PJ)', position: 'insideTopRight' }} stroke="#059669" strokeDasharray="5 5" />
-                            <RechartsArea dataKey="tubridgiVolume" stroke="#7c3aed" fill="#7c3aed" fillOpacity={0.6} name="Tubridgi Volume" />
-                            <RechartsArea dataKey="mondarraVolume" stroke="#059669" fill="#059669" fillOpacity={0.8} name="Mondarra Volume" />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
-            </Card>
-        </div>
+        <Card>
+            <div className="flex items-center mb-1">
+                <Database className="w-6 h-6 mr-3 text-purple-600" />
+                <h2 className="text-xl font-bold text-gray-800">Storage Inventory & Flow Analysis</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+                Daily injection/withdrawal flows and resulting inventory levels for WA's key storage facilities.
+            </p>
+            <div style={{ width: '100%', height: 500 }}>
+                <ResponsiveContainer>
+                    <ComposedChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                        <YAxis yAxisId="flow" orientation="left" stroke="#8884d8" label={{ value: 'Flow (TJ/d)', angle: -90, position: 'insideLeft' }} />
+                        <YAxis yAxisId="volume" orientation="right" stroke="#82ca9d" label={{ value: 'Volume (TJ)', angle: 90, position: 'insideRight' }} tickFormatter={(val) => `${(val / 1000).toFixed(1)} PJ`} />
+                        <Tooltip formatter={(value, name, props) => {
+                            if (name.includes('Volume')) {
+                                return [`${(value / 1000).toFixed(2)} PJ`, name];
+                            }
+                            return [`${value.toFixed(0)} TJ/d`, name];
+                        }} />
+                        <Legend />
+
+                        {/* Volume Areas (right axis) */}
+                        {storageFacilities.map(name => (
+                            <RechartsArea
+                                key={`${name}-volume`}
+                                yAxisId="volume"
+                                type="monotone"
+                                dataKey={d => d.volumes[name]}
+                                stackId="volume"
+                                stroke={facilityColors[name]}
+                                fill={facilityColors[name]}
+                                fillOpacity={0.7}
+                                name={`${name} Volume`}
+                            />
+                        ))}
+
+                        {/* Flow Bars (left axis) */}
+                        {storageFacilities.map(name => (
+                            <Bar
+                                key={`${name}-flow`}
+                                yAxisId="flow"
+                                dataKey={d => d.flows[name]}
+                                stackId="flow"
+                                fill={facilityColors[name]}
+                                name={`${name} Net Flow`}
+                            />
+                        ))}
+
+                        {storageFacilities.map(name => (
+                             <ReferenceLine
+                                key={`${name}-capacity`}
+                                y={facilityInfo[name].capacity}
+                                yAxisId="volume"
+                                label={{ value: `${name} Max`, position: 'insideTopRight', fill: '#334155', fontSize: 12 }}
+                                stroke={facilityColors[name]}
+                                strokeDasharray="4 4"
+                             />
+                        ))}
+                         <ReferenceLine y={0} yAxisId="flow" stroke="#000" strokeWidth={1} />
+                    </ComposedChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
     );
 }
 
@@ -522,7 +542,11 @@ function StoragePage({ liveData, navigateTo }) {
     return (
         <div>
             <PageTitle backAction={() => navigateTo('dashboard')}>Storage Flow Analysis</PageTitle>
-            <StorageFlowsChart data={liveData.storageAnalysis} />
+            <StorageOverviewChart
+                data={liveData.storageAnalysis}
+                facilityInfo={liveData.storageFacilityInfo}
+                facilityColors={liveData.storageFacilityColors}
+            />
         </div>
     );
 }
@@ -595,14 +619,24 @@ export default function App() {
                     }
                 });
                 
-                const totalStorageCapacity = mtcData.rows.reduce((acc, row) => {
+                const storageFacilityInfo = {};
+                const storageFacilityColors = {};
+                const storageColorPalette = ['#a855f7', '#6366f1', '#ec4899', '#22d3ee'];
+                let storageColorIndex = 0;
+
+                mtcData.rows.forEach(row => {
                     const apiName = row.facilityName;
                     const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
                     if (facilityInfo[displayName]?.type === 'Storage' && row.capacityType === 'Nameplate') {
-                        return acc + row.capacity;
+                        if (!storageFacilityInfo[displayName]) {
+                            storageFacilityInfo[displayName] = { capacity: 0 };
+                            storageFacilityColors[displayName] = storageColorPalette[storageColorIndex++ % storageColorPalette.length];
+                        }
+                        storageFacilityInfo[displayName].capacity += row.capacity;
                     }
-                    return acc;
-                }, 0);
+                });
+
+                const totalStorageCapacity = Object.values(storageFacilityInfo).reduce((sum, facility) => sum + facility.capacity, 0);
 
                 const today = new Date();
                 const monthPromises = [];
@@ -617,7 +651,7 @@ export default function App() {
                 const responses = await Promise.all(monthPromises);
                 const csvTexts = await Promise.all(responses.map(res => res.ok ? res.text() : ''));
                 
-                setBaseData({ csvTexts, facilityInfo, totalStorageCapacity });
+                setBaseData({ csvTexts, facilityInfo, totalStorageCapacity, storageFacilityInfo, storageFacilityColors });
 
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
@@ -632,7 +666,7 @@ export default function App() {
     useEffect(() => {
         if (!baseData) return;
 
-        const { csvTexts, facilityInfo, totalStorageCapacity } = baseData;
+        const { csvTexts, facilityInfo, totalStorageCapacity, storageFacilityInfo, storageFacilityColors } = baseData;
         
         const dailyData = {};
         const facilityConsumptionData = [];
@@ -654,10 +688,10 @@ export default function App() {
                     if (!dailyData[date]) {
                         dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
                     }
-                    if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
+                    if (!storageFlows[date]) storageFlows[date] = {};
                     
                     const isProduction = PRODUCTION_FACILITIES.includes(displayName);
-                    const isStorage = Object.values(facilityInfo).some(f => (f.dataName === apiName || AEMO_FACILITY_NAME_MAP[f.dataName] === apiName) && f.type === 'Storage');
+                    const isStorage = facilityInfo[displayName]?.type === 'Storage';
 
                     if (isProduction) {
                         const supply = parseFloat(row.receipt) || 0;
@@ -670,7 +704,11 @@ export default function App() {
                             dailyData[date][displayName] = supply;
                         }
                     } else if (isStorage) {
-                        storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
+                        const flow = (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
+                        if (!storageFlows[date][displayName]) {
+                            storageFlows[date][displayName] = 0;
+                        }
+                        storageFlows[date][displayName] += flow;
                     }
                 });
             } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
@@ -726,11 +764,44 @@ export default function App() {
 
         const finalFlowsWithYara = finalFlows.map(d => ({...d, totalDemand: d.totalDemand + yaraAdjustment }));
 
-        const sortedStorageFlows = Object.entries(storageFlows).sort((a,b) => new Date(a[0]) - new Date(b[0]));
-        let currentVolume = totalStorageCapacity * 0.5;
-        const storageAnalysis = sortedStorageFlows.map(([date, flows]) => {
-            currentVolume = Math.max(0, Math.min(totalStorageCapacity, currentVolume + flows.netFlow));
-            return { date: new Date(date).toLocaleDateString('en-CA'), netFlow: flows.netFlow, totalVolume: currentVolume };
+        const sortedDates = Object.keys(storageFlows).sort((a, b) => new Date(a) - new Date(b));
+        const facilityVolumes = {};
+        const storageFacilities = Object.keys(storageFacilityInfo);
+
+        storageFacilities.forEach(name => {
+            facilityVolumes[name] = (storageFacilityInfo[name]?.capacity || 0) * 0.5;
+        });
+
+        const storageAnalysis = sortedDates.map(date => {
+            const dailyFlows = storageFlows[date];
+            let totalNetFlow = 0;
+
+            const result = {
+                date: new Date(date).toLocaleDateString('en-CA'),
+                flows: {},
+                volumes: {},
+                injection: {},
+                withdrawal: {}
+            };
+
+            storageFacilities.forEach(name => {
+                const flow = dailyFlows[name] || 0;
+                totalNetFlow += flow;
+
+                result.flows[name] = flow;
+                result.injection[name] = Math.max(0, flow);
+                result.withdrawal[name] = Math.min(0, flow);
+
+                const capacity = storageFacilityInfo[name]?.capacity || 0;
+                const previousVolume = facilityVolumes[name];
+                const newVolume = Math.max(0, Math.min(capacity, previousVolume + flow));
+                facilityVolumes[name] = newVolume;
+                result.volumes[name] = newVolume;
+            });
+
+            result.netFlow = totalNetFlow;
+            result.totalVolume = Object.values(facilityVolumes).reduce((sum, vol) => sum + vol, 0);
+            return result;
         });
 
         const balanceData = alignedFlows.map(d => ({ date: d.date, balance: d.totalSupply - d.totalDemand }));
@@ -751,7 +822,9 @@ export default function App() {
             totalStorageCapacity, 
             facilityConsumption: facilityConsumptionData, 
             volatility,
-            forecastStartDate: new Date(forecastStartDate).toLocaleDateString('en-CA')
+            forecastStartDate: new Date(forecastStartDate).toLocaleDateString('en-CA'),
+            storageFacilityInfo,
+            storageFacilityColors
         });
 
     }, [baseData, yaraAdjustment]);
