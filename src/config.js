@@ -1,4 +1,4 @@
-export const AEMO_API_BASE_URL = "/api/report";
+export const AEMO_API_BASE_URL = "https://api.fieryweb.co/v1";
 
 export const PRODUCTION_FACILITIES = [
     "North West Shelf", "Gorgon", "Wheatstone", "Macedon",
