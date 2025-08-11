@@ -1,245 +1,136 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { BarChart, Bar, Line, AreaChart, Area as RechartsArea, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine, ComposedChart, ReferenceArea, Brush } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2, Activity, FlaskConical } from 'lucide-react';
-import { fetchAemoData } from './api';
-import { STORAGE_COLORS, VOLATILITY_COLOR, PRODUCTION_FACILITIES, DATA_TO_DISPLAY_NAME_MAP, GSOO_HISTORICAL_DEMAND, FACILITY_CAPACITIES } from './config';
-import { generateMockLiveData } from './mockData';
+import React, { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle, Loader } from 'lucide-react';
+import { getLinepackCapacityAdequacyCurrent, getEndUserConsumptionCurrent, getCapacityOutlookCurrent } from './api/gbb';
+import { nowAwst, formatAwst, firstDefined } from './lib/time';
+import './App.css';
 
-const generateGSOODemand = () => {
-    const medianDemand = Object.values(GSOO_HISTORICAL_DEMAND).reduce((sum, val) => sum + val, 0) / Object.values(GSOO_HISTORICAL_DEMAND).length;
-    const data = [];
-    const today = new Date();
-    for (let i = 90; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-            date: date.toLocaleDateString('en-CA'),
-            timestamp: date.getTime(),
-            gsooMedianDemand: medianDemand + (Math.random() - 0.5) * 100
-        });
+function App() {
+  const [tiles, setTiles] = useState({
+    supply: { value: 'N/A', error: null, updated: null },
+    consumption: { value: 'N/A', error: null, updated: null },
+    linepack: { status: 'N/A', error: null, updated: null }
+  });
+  const [loadingTiles, setLoadingTiles] = useState(true);
+  const [tilesError, setTilesError] = useState(null);
+
+  const fetchTiles = useCallback(async () => {
+    setLoadingTiles(true);
+    setTilesError(null);
+    try {
+      const [lca, euc, co] = await Promise.all([
+        getLinepackCapacityAdequacyCurrent(),
+        getEndUserConsumptionCurrent(),
+        getCapacityOutlookCurrent()
+      ]);
+
+      // Consumption (sum if necessary)
+      let consumption;
+      if (euc?.error) {
+        consumption = { value: 'N/A', error: euc.error, updated: null };
+      } else {
+        const rows = Array.isArray(euc?.rows) ? euc.rows : (Array.isArray(euc?.data) ? euc.data : []);
+        const total = rows.reduce((sum, r) => {
+          const candidates = ['total', 'Total', 'totalTJ', 'total_tj'];
+          const totalField = candidates.map(k => Number(r?.[k])).find(v => Number.isFinite(v) && v > 0);
+          if (Number.isFinite(totalField)) return sum + totalField;
+          const parts = ['largeUser', 'distribution', 'other']
+            .map(k => Number(r?.[k]) || 0)
+            .reduce((a, b) => a + b, 0);
+          return sum + parts;
+        }, 0);
+        const updated = firstDefined(euc?.asAt, euc?.gasDay, euc?.timestamp, nowAwst());
+        consumption = { value: Number.isFinite(total) ? Math.round(total) : 'N/A', error: null, updated };
+      }
+
+      // Supply mirrors consumption until flows API wired
+      const supply = consumption.value !== 'N/A'
+        ? { value: consumption.value, error: null, updated: consumption.updated }
+        : { value: 'N/A', error: 'Supply not available', updated: null };
+
+      // Linepack status
+      const linepack = lca?.error
+        ? { status: 'N/A', error: lca.error, updated: null }
+        : {
+            status: ((lca?.status || lca?.result || lca?.data?.status) || 'N/A').toString().toUpperCase(),
+            error: null,
+            updated: firstDefined(lca?.asAt, lca?.gasDay, lca?.timestamp, nowAwst())
+          };
+
+      setTiles({ supply, consumption, linepack });
+    } catch (e) {
+      setTilesError(e.message || 'Unknown error');
+      setTiles({
+        supply: { value: 'N/A', error: e.message, updated: null },
+        consumption: { value: 'N/A', error: e.message, updated: null },
+        linepack: { status: 'N/A', error: e.message, updated: null }
+      });
+    } finally {
+      setLoadingTiles(false);
     }
-    return data;
-};
+  }, []);
 
-// --- HELPER COMPONENTS ---
-const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
+  useEffect(() => { fetchTiles(); }, [fetchTiles]);
 
-const PageTitle = ({ children, backAction }) => (
-    <div className="flex items-center mb-6">
-        {backAction && <button onClick={backAction} className="p-2 rounded-full hover:bg-gray-200 mr-4"><ArrowLeft className="w-6 h-6 text-gray-600" /></button>}
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">{children}</h1>
+  const renderTile = (title, value, unit, error) => (
+    <div className="bg-white rounded-xl p-6 border border-gray-200">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {value}
+            {unit && <span className="text-sm font-normal text-gray-500 ml-1">{unit}</span>}
+          </p>
+        </div>
+        {error && (
+          <div title={error}>
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+          </div>
+        )}
+      </div>
     </div>
-);
+  );
 
-const LoadingSpinner = () => (
-    <div className="flex flex-col items-center justify-center h-96">
-        <Loader className="w-16 h-16 animate-spin text-blue-600" />
-        <p className="mt-4 text-lg text-gray-600">Connecting to AEMO GBB (loading 2 years of data)...</p>
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-6">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">WA Gas Dashboard</h1>
+              <p className="mt-1 text-sm text-gray-500">
+                Real-time gas supply and consumption data
+              </p>
+            </div>
+            <button
+              onClick={fetchTiles}
+              disabled={loadingTiles}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-gray-400"
+            >
+              {loadingTiles ? <Loader className="w-4 h-4 animate-spin" /> : 'Refresh'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {tilesError && (
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+            <p className="font-bold">Error</p>
+            <p>{tilesError}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+          {renderTile('Total Supply', tiles.supply.value, 'TJ', tiles.supply.error)}
+          {renderTile('Total Consumption', tiles.consumption.value, 'TJ', tiles.consumption.error)}
+          {renderTile('Linepack Status', tiles.linepack.status, '', tiles.linepack.error)}
+        </div>
+        <div className="text-right text-sm text-gray-500">
+          Last updated: {formatAwst(tiles.consumption.updated || tiles.supply.updated || tiles.linepack.updated)}
+        </div>
+      </div>
     </div>
-);
-
-const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500">
-        <div className="flex">
-            <div className="flex-shrink-0">
-                <AlertTriangle className="h-6 w-6 text-red-600" />
-            </div>
-            <div className="ml-3">
-                <h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3>
-                <div className="mt-2 text-sm text-red-700">
-                    {message}
-                    <p className="mt-1 font-bold">Displaying sample data instead. Please check your network or proxy settings.</p>
-                </div>
-            </div>
-        </div>
-    </Card>
-);
-
-// --- NEWLY DEFINED UI COMPONENTS ---
-const SummaryTiles = ({ data, storageData, volatility }) => {
-    const latestData = data[data.length - 1] || {};
-    const latestStorage = storageData[storageData.length - 1] || {};
-    const latestVolatility = volatility[volatility.length - 1] || {};
-    return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card>
-                <div className="flex items-center">
-                    <Zap className="w-8 h-8 text-green-500 mr-4" />
-                    <div>
-                        <p className="text-sm text-gray-500">Total Supply</p>
-                        <p className="text-2xl font-bold">{latestData.totalSupply?.toFixed(0) || 'N/A'} TJ/day</p>
-                    </div>
-                </div>
-            </Card>
-            <Card>
-                <div className="flex items-center">
-                    <TrendingUp className="w-8 h-8 text-blue-500 mr-4" />
-                    <div>
-                        <p className="text-sm text-gray-500">Total Consumption</p>
-                        <p className="text-2xl font-bold">{latestData.totalDemand?.toFixed(0) || 'N/A'} TJ/day</p>
-                    </div>
-                </div>
-            </Card>
-            <Card>
-                <div className="flex items-center">
-                    <Database className="w-8 h-8 text-purple-500 mr-4" />
-                    <div>
-                        <p className="text-sm text-gray-500">Storage Level</p>
-                        <p className="text-2xl font-bold">{latestStorage.totalVolume?.toFixed(0) || 'N/A'} TJ</p>
-                    </div>
-                </div>
-            </Card>
-            <Card>
-                <div className="flex items-center">
-                    <Activity className="w-8 h-8 text-red-500 mr-4" />
-                    <div>
-                        <p className="text-sm text-gray-500">30D Volatility</p>
-                        <p className="text-2xl font-bold">{latestVolatility.volatility?.toFixed(1) || 'N/A'} TJ</p>
-                    </div>
-                </div>
-            </Card>
-        </div>
-    );
-};
-
-const StrategySection = () => (
-    <Card>
-        <div className="flex items-center mb-2">
-            <Lightbulb className="w-6 h-6 mr-3 text-yellow-400" />
-            <h2 className="text-xl font-bold text-gray-800">Market Insights & Strategy</h2>
-        </div>
-        <p className="text-sm text-gray-600">
-            The WA gas market is currently in a near-term surplus, but forecasts indicate a potential supply gap in 2028, followed by a growing deficit from 2030. This suggests opportunities for flexible supply sources and storage solutions to manage increasing demand variability, especially with the rise of gas-powered generation to support renewables.
-        </p>
-    </Card>
-);
-
-const ScenarioPlanner = ({ facilities, scenario, setScenario, onApply }) => {
-    const handleFacilityChange = (e) => setScenario(s => ({ ...s, facility: e.target.value }));
-    const handleOutageChange = (e) => setScenario(s => ({ ...s, outagePercent: Number(e.target.value) }));
-    const handleToggle = () => setScenario(s => ({ ...s, active: !s.active }));
-    return (
-        <Card>
-            <div className="flex items-center mb-4">
-                <FlaskConical className="w-6 h-6 mr-3 text-blue-500" />
-                <h2 className="text-xl font-bold text-gray-800">Scenario Planner</h2>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Facility</label>
-                    <select value={scenario.facility} onChange={handleFacilityChange} className="w-full border border-gray-300 rounded px-3 py-2">
-                        {facilities.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Outage %</label>
-                    <input type="number" value={scenario.outagePercent} onChange={handleOutageChange} className="w-full border border-gray-300 rounded px-3 py-2" min="0" max="100" />
-                </div>
-                <div className="flex items-end">
-                    <button onClick={handleToggle} className={`px-4 py-2 rounded mr-2 ${scenario.active ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
-                        {scenario.active ? 'Remove Scenario' : 'Apply Scenario'}
-                    </button>
-                    {scenario.active && <span className="text-sm text-orange-600 font-semibold">Scenario Active</span>}
-                </div>
-            </div>
-        </Card>
-    );
-};
-
-// Updated main App component
-export default function App() {
-    const [data, setData] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [currentPage, setCurrentPage] = useState('overview');
-    const [scenario, setScenario] = useState({ facility: 'Dongara', outagePercent: 10, active: false });
-    
-    // Generate additional data
-    const gsooData = useMemo(generateGSOODemand, []);
-    const storageData = useMemo(() => {
-        return data.map((d, i) => ({
-            date: d.date,
-            timestamp: d.timestamp,
-            totalVolume: 5000 + Math.sin(i * 0.1) * 1000 + (Math.random() - 0.5) * 200
-        }));
-    }, [data]);
-    
-    const volatilityData = useMemo(() => {
-        return data.map((d, i) => {
-            const baseVolatility = 50;
-            const seasonal = Math.sin(i * 0.02) * 20;
-            const random = (Math.random() - 0.5) * 30;
-            return {
-                date: d.date,
-                timestamp: d.timestamp,
-                volatility: Math.max(0, baseVolatility + seasonal + random)
-            };
-        });
-    }, [data]);
-    
-    const fetchData = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const result = await fetchAemoData();
-            if (result.error) {
-                setError(result.error);
-                setData(generateMockLiveData());
-            } else {
-                setData(result.data);
-            }
-        } catch (err) {
-            setError('Failed to connect to AEMO servers');
-            setData(generateMockLiveData());
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-    
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-    
-    // Apply scenario modifications
-    const processedData = useMemo(() => {
-        if (!scenario.active) return data;
-        return data.map(d => {
-            const facilityKey = scenario.facility.toLowerCase().replace(/\s+/g, '_');
-            if (d[facilityKey] !== undefined) {
-                const reduction = d[facilityKey] * (scenario.outagePercent / 100);
-                return {
-                    ...d,
-                    [facilityKey]: d[facilityKey] - reduction,
-                    totalSupply: (d.totalSupply || 0) - reduction
-                };
-            }
-            return d;
-        });
-    }, [data, scenario]);
-    
-    if (isLoading) return <LoadingSpinner />;
-    
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-            <div className="max-w-7xl mx-auto">
-                <PageTitle backAction={currentPage !== 'overview' ? () => setCurrentPage('overview') : null}>
-                    WA Gas Dashboard {currentPage !== 'overview' && `- ${currentPage.charAt(0).toUpperCase() + currentPage.slice(1)}`}
-                </PageTitle>
-                
-                {error && <ErrorDisplay message={error} />}
-                
-                <SummaryTiles data={processedData} storageData={storageData} volatility={volatilityData} />
-                <div className="mt-6">
-                    <StrategySection />
-                </div>
-                <div className="mt-6">
-                    <ScenarioPlanner
-                        facilities={Object.keys(PRODUCTION_FACILITIES)}
-                        scenario={scenario}
-                        setScenario={setScenario}
-                    />
-                </div>
-            </div>
-        </div>
-    );
+  );
 }
+
+export default App;
