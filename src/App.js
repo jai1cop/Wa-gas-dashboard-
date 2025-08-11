@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Loader } from 'lucide-react';
-import { getLinepackCapacityAdequacyCurrent, getEndUserConsumptionCurrent, getCapacityOutlookCurrent } from './api/gbb';
+import { getLinepackCapacityAdequacyCurrent, getEndUserConsumptionCurrent } from './api/gbb';
 import { nowAwst, formatAwst, firstDefined } from './lib/time';
 import './App.css';
 
@@ -17,10 +17,9 @@ function App() {
     setLoadingTiles(true);
     setTilesError(null);
     try {
-      const [lca, euc, co] = await Promise.all([
+      const [lca, euc] = await Promise.all([
         getLinepackCapacityAdequacyCurrent(),
-        getEndUserConsumptionCurrent(),
-        getCapacityOutlookCurrent()
+        getEndUserConsumptionCurrent()
       ]);
 
       // Consumption (sum if necessary)
