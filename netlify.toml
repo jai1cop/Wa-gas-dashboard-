@@ -1,3 +1,7 @@
+[build]
+  command = "npm run build"
+  publish = "build"
+
 # Netlify configuration file
 
 # This rule proxies all AEMO API requests
