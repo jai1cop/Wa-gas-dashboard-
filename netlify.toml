@@ -3,6 +3,10 @@
 # This rule proxies all AEMO API requests
 # from: /api/*
 # to:   https://gbbwa.aemo.com.au/api/v1/*
+[build]
+  command = "npm run build"
+  publish = "build"
+
 [[redirects]]
   from = "/api/*"
   to = "https://gbbwa.aemo.com.au/api/v1/:splat"

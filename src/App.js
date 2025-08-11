@@ -1,54 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, AreaChart, Area as RechartsArea, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine, ComposedChart, ReferenceArea } from 'recharts';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { BarChart, Bar, Line, AreaChart, Area as RechartsArea, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine, ComposedChart, ReferenceArea, Brush } from 'recharts';
 import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2, Activity, FlaskConical } from 'lucide-react';
-
-// --- CONFIGURATION ---
-const AEMO_API_BASE_URL = "/api/report";
-const getYYYYMMString = (date) => date.toISOString().slice(0, 7);
-const STORAGE_COLORS = { injection: '#22c55e', withdrawal: '#dc2626', volume: '#0ea5e9' };
-const VOLATILITY_COLOR = '#8884d8';
-
-// --- DATA CONFIGURATION ---
-const PRODUCTION_FACILITIES = [
-    "North West Shelf", "Gorgon", "Wheatstone", "Macedon",
-    "Varanus Island", "Devil Creek", "Pluto", "Xyris Production Facility",
-    "Walyering Production Facility", "Beharra Springs"
-];
-
-// Map display names to data names if they differ
-const AEMO_FACILITY_NAME_MAP = {
-    "Karratha Gas Plant": "North West Shelf",
-    "Gorgon Gas Plant": "Gorgon",
-};
-
-// Reverse mapping for data processing
-const DATA_TO_DISPLAY_NAME_MAP = Object.fromEntries(
-    Object.entries(AEMO_FACILITY_NAME_MAP).map(([display, data]) => [data, display])
-);
-
-const FACILITY_CAPACITIES = {
-    "North West Shelf": 630, "Gorgon Gas Plant": 300, "Wheatstone": 230,
-    "Macedon": 170, "Varanus Island": 390, "Devil Creek": 50, "Pluto": 40,
-    "Xyris Production Facility": 30, "Walyering Production Facility": 33, "Beharra Springs": 25
-};
-
-const GSOO_HISTORICAL_DEMAND = { 2022: 1045, 2023: 1078, 2024: 1119 };
-
-// --- HELPER FUNCTIONS ---
-const parseCSV = (csvText) => {
-    const lines = csvText.trim().split('\n');
-    if (lines.length < 2) return [];
-    const header = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    return lines.slice(1).map(line => {
-        const values = line.split(',');
-        return header.reduce((obj, nextKey, index) => {
-            obj[nextKey] = values[index] ? values[index].trim().replace(/"/g, '') : '';
-            return obj;
-        }, {});
-    });
-};
-
-const getFacilityCapacity = (facilityName) => FACILITY_CAPACITIES[facilityName] || null;
+import { fetchAemoData } from './api';
+import { STORAGE_COLORS, VOLATILITY_COLOR, PRODUCTION_FACILITIES, DATA_TO_DISPLAY_NAME_MAP, GSOO_HISTORICAL_DEMAND, FACILITY_CAPACITIES } from './config';
+import { generateMockLiveData } from './mockData';
+import Toast from './components/Toast';
 
 const generateGSOODemand = () => {
     const medianDemand = Object.values(GSOO_HISTORICAL_DEMAND).reduce((sum, val) => sum + val, 0) / Object.values(GSOO_HISTORICAL_DEMAND).length;
@@ -81,7 +37,7 @@ const LoadingSpinner = () => (
     </div>
 );
 const ErrorDisplay = ({ message }) => (
-    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">This is likely a network or proxy issue. Please ensure the `netlify.toml` file is in the root directory and is configured correctly.</p></div></div></div></Card>
+    <Card className="border-l-4 border-red-500"><div className="flex"><div className="flex-shrink-0"><AlertTriangle className="h-6 w-6 text-red-600" /></div><div className="ml-3"><h3 className="text-lg font-medium text-red-800">Failed to Load Live Data</h3><div className="mt-2 text-sm text-red-700"><p>{message}</p><p className="mt-1 font-bold">Displaying sample data instead. Please check your network or proxy settings.</p></div></div></div></Card>
 );
 
 // --- NEWLY DEFINED UI COMPONENTS ---
@@ -273,23 +229,74 @@ function SupplyChart({ data }) {
     );
 }
 
+
+const StorageTooltip = ({ active, payload, label, unit }) => {
+    if (active && payload && payload.length) {
+        const netFlow = payload.find(p => p.dataKey === 'netFlow');
+        const totalVolume = payload.find(p => p.dataKey === 'totalVolume');
+
+        return (
+            <div className="bg-gray-800 text-white p-3 border border-gray-700 rounded shadow-lg text-sm">
+                <p className="font-bold mb-2">{label}</p>
+                {netFlow && (
+                    <p style={{ color: netFlow.payload.netFlow >= 0 ? STORAGE_COLORS.injection : STORAGE_COLORS.withdrawal }}>
+                        Net Flow: {netFlow.value.toFixed(1)} TJ
+                    </p>
+                )}
+                {totalVolume && (
+                    <p style={{ color: STORAGE_COLORS.volume }}>
+                        Total Volume: {unit === 'PJ' ? (totalVolume.value / 1000).toFixed(2) : totalVolume.value.toFixed(1)} {unit}
+                    </p>
+                )}
+            </div>
+        );
+    }
+    return null;
+};
+
 function StorageAnalysisChart({ data, totalCapacity }) {
+    const [unit, setUnit] = useState('PJ');
+
     return (
         <Card>
-            <div className="flex items-center mb-1"><Database className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-gray-800">Storage Inventory Analysis</h2></div>
+            <div className="flex justify-between items-center mb-1">
+                <div className="flex items-center">
+                    <Database className="w-6 h-6 mr-3 text-blue-600" />
+                    <h2 className="text-xl font-bold text-gray-800">Storage Inventory Analysis</h2>
+                </div>
+                <div className="flex justify-end">
+                    <button onClick={() => setUnit('TJ')} className={`px-3 py-1 text-sm rounded-l-md ${unit === 'TJ' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>TJ</button>
+                    <button onClick={() => setUnit('PJ')} className={`px-3 py-1 text-sm rounded-r-md ${unit === 'PJ' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>PJ</button>
+                </div>
+            </div>
             <p className="text-sm text-gray-500 mb-4">Daily net injections/withdrawals and estimated total inventory.</p>
-            <div style={{ width: '100%', height: 352 }}>
+            <div style={{ width: '100%', height: 400 }}>
                 <ResponsiveContainer>
-                    <ComposedChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis yAxisId="left" orientation="left" stroke="#8884d8" label={{ value: 'Net Flow (TJ/d)', angle: -90, position: 'insideLeft' }} />
-                        <YAxis yAxisId="right" orientation="right" stroke={STORAGE_COLORS.volume} label={{ value: 'Total Inventory (TJ)', angle: 90, position: 'insideRight' }} />
-                        <Tooltip formatter={(value, name) => [`${value.toFixed(0)} TJ`, name]} />
-                        <Legend />
-                        <ReferenceLine y={totalCapacity} yAxisId="right" label={{ value: `Max Capacity (${totalCapacity} TJ)`, position: 'insideTopRight', fill: '#6b7280' }} stroke="red" strokeDasharray="3 3" />
+                    <ComposedChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="1 5" stroke="#e0e0e0" />
+                        <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                        <YAxis
+                            yAxisId="left"
+                            orientation="left"
+                            stroke="#9ca3af"
+                            label={{ value: 'Net Flow (TJ/d)', angle: -90, position: 'insideLeft', fill: '#6b7280' }}
+                            tick={{ fontSize: 12, fill: '#6b7280' }}
+                            tickFormatter={(value) => `${value}`}
+                        />
+                        <YAxis
+                            yAxisId="right"
+                            orientation="right"
+                            stroke={STORAGE_COLORS.volume}
+                            label={{ value: `Total Inventory (${unit})`, angle: 90, position: 'insideRight', fill: '#6b7280' }}
+                            tick={{ fontSize: 12, fill: '#6b7280' }}
+                            tickFormatter={(value) => unit === 'PJ' ? `${(value / 1000).toFixed(1)}` : `${value}`}
+                        />
+                        <Tooltip content={<StorageTooltip unit={unit} />} />
+                        <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '10px' }} />
+                        <ReferenceLine y={totalCapacity} yAxisId="right" label={{ value: `Max Capacity (${unit === 'PJ' ? (totalCapacity/1000).toFixed(1) + ' PJ' : totalCapacity + ' TJ'})`, position: 'insideTopRight', fill: '#6b7280', fontSize: 12 }} stroke="#374151" strokeDasharray="4 4" />
                         <Bar yAxisId="left" dataKey="netFlow" name="Net Injection/Withdrawal">{data.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.netFlow >= 0 ? STORAGE_COLORS.injection : STORAGE_COLORS.withdrawal} />)}</Bar>
-                        <Line yAxisId="right" type="monotone" dataKey="totalVolume" name="Estimated Total Inventory" stroke={STORAGE_COLORS.volume} strokeWidth={2} dot={false} />
+                        <Line yAxisId="right" type="monotone" dataKey="totalVolume" name="Estimated Total Inventory" stroke={STORAGE_COLORS.volume} strokeWidth={3} dot={false} />
+                        <Brush dataKey="date" height={30} stroke="#8884d8" />
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
@@ -546,23 +553,27 @@ export default function App() {
     const [constraintsData, setConstraintsData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [toasts, setToasts] = useState([]);
+
+    const removeToast = useCallback(id => {
+        setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, []);
+
+    const addToast = useCallback((message, type = 'info') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => removeToast(id), 5000);
+    }, [removeToast]);
     
     const [baseData, setBaseData] = useState(null);
 
     useEffect(() => {
         const fetchAndProcessData = async () => {
-            setLoading(true); setError(null);
+            setLoading(true);
+            setError(null);
             try {
-                const [capacityRes, mtcRes] = await Promise.all([
-                    fetch(`${AEMO_API_BASE_URL}/capacityOutlook/current`),
-                    fetch(`${AEMO_API_BASE_URL}/mediumTermCapacity/current`),
-                ]);
-                if (!capacityRes.ok) throw new Error(`Failed to fetch Capacity Outlook: ${capacityRes.statusText}`);
-                if (!mtcRes.ok) throw new Error(`Failed to fetch Medium Term Capacity: ${mtcRes.statusText}`);
+                const { capacityData, mtcData, flowData, consumptionData } = await fetchAemoData();
                 
-                const capacityData = await capacityRes.json();
-                const mtcData = await mtcRes.json();
-
                 const constraints = mtcData.rows.reduce((acc, row) => {
                     const facilityName = row.facilityName;
                     if (!acc[facilityName]) {
@@ -603,95 +614,81 @@ export default function App() {
                     }
                     return acc;
                 }, 0);
-
-                const today = new Date();
-                const monthPromises = [];
-                for (let i = 0; i < 24; i++) {
-                    const date = new Date(today);
-                    date.setMonth(today.getMonth() - i);
-                    const monthString = getYYYYMMString(date);
-                    monthPromises.push(fetch(`${AEMO_API_BASE_URL}/actualFlow/${monthString}.csv`));
-                    monthPromises.push(fetch(`${AEMO_API_BASE_URL}/largeUserConsumption/${monthString}.csv`));
-                }
                 
-                const responses = await Promise.all(monthPromises);
-                const csvTexts = await Promise.all(responses.map(res => res.ok ? res.text() : ''));
-                
-                setBaseData({ csvTexts, facilityInfo, totalStorageCapacity });
+                setBaseData({ flowData, consumptionData, facilityInfo, totalStorageCapacity });
 
                 const initialActive = {};
                 Object.keys(facilityInfo).forEach(name => { if (facilityInfo[name].type === 'Production') initialActive[name] = true; });
                 setActiveFacilities(initialActive);
 
-            } catch (err) { console.error("API Error:", err); setError(err.message); } 
-            finally { setLoading(false); }
+            } catch (err) {
+                console.error("API Error:", err);
+                setError(err.message);
+                addToast(`Error fetching AEMO data: ${err.message}. Displaying mock data.`, 'error');
+
+                const mockData = generateMockLiveData();
+                setLiveData(mockData);
+                setBaseData(null); // Prevent processing of non-existent base data
+            } finally {
+                setLoading(false);
+            }
         };
         fetchAndProcessData();
-    }, []);
+    }, [addToast]);
 
     useEffect(() => {
         if (!baseData) return;
 
-        const { csvTexts, facilityInfo, totalStorageCapacity } = baseData;
+        const { flowData, consumptionData, facilityInfo, totalStorageCapacity } = baseData;
         
         const dailyData = {};
-        const facilityConsumptionData = [];
         const storageFlows = {};
 
-        csvTexts.forEach(csv => {
-            if (!csv) return;
-            const parsed = parseCSV(csv);
-            if (parsed.length === 0) return;
+        flowData.forEach(row => {
+            const date = row.gasDay;
+            if (!date) return;
 
-            if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('receipt')) { // Flow data
-                parsed.forEach(row => {
-                    const date = row.gasDay;
-                    if (!date) return;
-                    
-                    const apiName = row.facilityName;
-                    const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
-                    
-                    if (!dailyData[date]) {
-                        dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                    }
-                    if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
-                    
-                    const isProduction = PRODUCTION_FACILITIES.includes(displayName);
-                    const isStorage = Object.values(facilityInfo).some(f => (f.dataName === apiName || AEMO_FACILITY_NAME_MAP[f.dataName] === apiName) && f.type === 'Storage');
+            const apiName = row.facilityName;
+            const displayName = DATA_TO_DISPLAY_NAME_MAP[apiName] || apiName;
 
-                    if (isProduction) {
-                        const supply = parseFloat(row.receipt) || 0;
-                        const facilityCapacity = getFacilityCapacity(displayName);
-                        if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
-                            console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
-                            return;
-                        }
-                        if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
-                            dailyData[date][displayName] = supply;
-                        }
-                    } else if (isStorage) {
-                        storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
-                    }
-                });
-            } else if (parsed[0].hasOwnProperty('facilityCode') && parsed[0].hasOwnProperty('quantity')) { // Demand data
-                parsed.forEach(item => {
-                    const date = item.gasDay;
-                    if (!date) return;
-                    if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
-                    const quantity = parseFloat(item.quantity) || 0;
-                    dailyData[date].totalDemand += quantity;
-                    facilityConsumptionData.push({ ...item, quantity });
-                });
+            if (!dailyData[date]) {
+                dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+            }
+            if (!storageFlows[date]) storageFlows[date] = { netFlow: 0 };
+
+            const isProduction = PRODUCTION_FACILITIES.includes(displayName);
+            const isStorage = Object.values(facilityInfo).some(f => f.dataName === apiName && f.type === 'Storage');
+
+            if (isProduction) {
+                const supply = parseFloat(row.receipt) || 0;
+                const facilityCapacity = FACILITY_CAPACITIES[displayName] || null;
+                if (supply < 0 || (facilityCapacity && supply > facilityCapacity * 1.2)) {
+                    console.warn(`Skipping invalid supply data: ${displayName} ${supply} on ${date}`);
+                    return;
+                }
+                if (!dailyData[date][displayName] || supply > dailyData[date][displayName]) {
+                    dailyData[date][displayName] = supply;
+                }
+            } else if (isStorage) {
+                storageFlows[date].netFlow += (parseFloat(row.receipt) || 0) - (parseFloat(row.delivery) || 0);
             }
         });
         
+        consumptionData.forEach(item => {
+            const date = item.gasDay;
+            if (!date) return;
+            if (!dailyData[date]) dailyData[date] = { date: new Date(date).toLocaleDateString('en-CA'), timestamp: new Date(date).getTime(), totalDemand: 0, totalSupply: 0 };
+            const quantity = parseFloat(item.quantity) || 0;
+            dailyData[date].totalDemand += quantity;
+        });
+
         Object.values(dailyData).forEach(day => {
             day.totalSupply = PRODUCTION_FACILITIES.reduce((sum, facility) => sum + (day[facility] || 0), 0);
         });
 
         let processedFlows = Object.values(dailyData).sort((a, b) => a.timestamp - b.timestamp);
         
-        const lastActualConsumptionDate = facilityConsumptionData.reduce((max, d) => d.gasDay > max ? d.gasDay : max, '');
+        const lastActualConsumptionDate = consumptionData.reduce((max, d) => d.gasDay > max ? d.gasDay : max, '');
         
         const alignedFlows = processedFlows.filter(d => d.date <= new Date(lastActualConsumptionDate).toLocaleDateString('en-CA'));
         
@@ -749,7 +746,7 @@ export default function App() {
             facilityInfo, 
             storageAnalysis, 
             totalStorageCapacity, 
-            facilityConsumption: facilityConsumptionData, 
+            facilityConsumption: consumptionData,
             volatility,
             forecastStartDate: new Date(forecastStartDate).toLocaleDateString('en-CA')
         });
