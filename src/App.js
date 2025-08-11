@@ -1,25 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { BarChart, Bar, Line, AreaChart, Area as RechartsArea, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine, ComposedChart, ReferenceArea, Brush } from 'recharts';
-import { ChevronUp, ChevronDown, Settings, ArrowLeft, AlertTriangle, Loader, Users, Database, TrendingUp, Zap, Lightbulb, BarChart2, Activity, FlaskConical } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Loader, Database, TrendingUp, Zap, Lightbulb, Activity, FlaskConical } from 'lucide-react';
 import { fetchAemoData } from './api';
-import { STORAGE_COLORS, VOLATILITY_COLOR, PRODUCTION_FACILITIES, DATA_TO_DISPLAY_NAME_MAP, GSOO_HISTORICAL_DEMAND, FACILITY_CAPACITIES } from './config';
+import { PRODUCTION_FACILITIES } from './config';
 import { generateMockLiveData } from './mockData';
-
-const generateGSOODemand = () => {
-    const medianDemand = Object.values(GSOO_HISTORICAL_DEMAND).reduce((sum, val) => sum + val, 0) / Object.values(GSOO_HISTORICAL_DEMAND).length;
-    const data = [];
-    const today = new Date();
-    for (let i = 90; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-            date: date.toLocaleDateString('en-CA'),
-            timestamp: date.getTime(),
-            gsooMedianDemand: medianDemand + (Math.random() - 0.5) * 100
-        });
-    }
-    return data;
-};
 
 // --- HELPER COMPONENTS ---
 const Card = ({ children, className = '' }) => <div className={`bg-white rounded-xl shadow-md p-4 sm:p-6 ${className}`}>{children}</div>;
@@ -155,7 +138,6 @@ export default function App() {
     const [scenario, setScenario] = useState({ facility: 'Dongara', outagePercent: 10, active: false });
     
     // Generate additional data
-    const gsooData = useMemo(generateGSOODemand, []);
     const storageData = useMemo(() => {
         return data.map((d, i) => ({
             date: d.date,
