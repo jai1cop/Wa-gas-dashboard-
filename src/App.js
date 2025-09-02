@@ -50,7 +50,7 @@ function App() {
   const tiles = [
     {
       title: 'Current Production',
-      value: currentData?.production || '0',
+      value: currentData?.production ?? 0,
       unit: 'PJ/day',
       icon: Zap,
       color: 'text-blue-600',
@@ -58,7 +58,7 @@ function App() {
     },
     {
       title: 'Storage Level',
-      value: currentData?.storage || '0',
+      value: currentData?.storage ?? 0,
       unit: 'PJ',
       icon: Activity,
       color: 'text-green-600',
@@ -66,7 +66,7 @@ function App() {
     },
     {
       title: 'Temperature',
-      value: currentData?.temperature || '0',
+      value: currentData?.temperature ?? 0,
       unit: '°C',
       icon: Thermometer,
       color: 'text-orange-600',
