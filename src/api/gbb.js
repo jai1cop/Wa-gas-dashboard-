@@ -1,8 +1,11 @@
-const BASE_URL = 'https://gbbwa.aemo.com.au/api/v1';
+// Use relative path so Netlify redirect can proxy requests in production
+// and avoid CORS issues when loading data
+const BASE_URL = '/api';
 
 export const fetchGasData = async (endpoint, params = {}) => {
   try {
-    const url = new URL(`${BASE_URL}${endpoint}`);
+    // Construct URL relative to current origin
+    const url = new URL(`${BASE_URL}${endpoint}`, window.location.origin);
     Object.keys(params).forEach(key => {
       if (params[key] !== undefined && params[key] !== null) {
         url.searchParams.append(key, params[key]);
